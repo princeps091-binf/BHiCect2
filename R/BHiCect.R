@@ -279,19 +279,14 @@ BHiCect <- function(res_set, res_num, chr_dat_l, cl_var = "smpl.cl", nworkers) {
         cl_dat_l[[cl]][[r]] <- tmp_dat
       }
       # when resolution higher than the original resolution
-      else {
-        print(chr1_tree_cl[[cl]])
-        print(tmp_res)
-        print(r)
+      else{
 
         # create the higher resolution bins expecting a 0-start counting of bins
-        r_bin <- unique(as.integer(sapply(chr1_tree_cl[[cl]], function(x) {
-          print(res_num[r])
+        r_bin<-unique(as.integer(sapply(chr1_tree_cl[[cl]],function(x){
 
           tmp <- seq(from = as.integer(x), to = (as.integer(x) + res_num[tmp_res]), by = res_num[r])
           return(tmp[-length(tmp)])
         })))
-        print(r)
 
         # extract corresponding edgelist from Hi-C data
         tmp_dat <- chr_dat_l[[r]] %>%
@@ -301,8 +296,8 @@ BHiCect <- function(res_set, res_num, chr_dat_l, cl_var = "smpl.cl", nworkers) {
       }
     }
   }
-  rm(lpe_chr1, res_chr1, r, r_bin, cl, tmp_res, tmp_res_set)
-  print(length(ok_part))
+  rm(lpe_chr1,res_chr1,r,r_bin,cl,tmp_res,tmp_res_set)
+
 
   # recursive looping
   while (length(ok_part) > 0) {

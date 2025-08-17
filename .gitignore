@@ -9,8 +9,5 @@ data/**
 .Rproj.user
 .Ruserdata
 .httr-oauth
-.idea
-.vscode
-
-# Ignore exceptions
-!data/chr_dat_l.rda
+.DS_Store
+scripts/
