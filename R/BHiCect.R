@@ -22,7 +22,7 @@
 #' @export
 #'
 get_adj_mat_fn <- function(g_chr1) {
-  chr_mat <- igraph::get.adjacency(g_chr1, type = "both", attr = "weight")
+  chr_mat <- igraph::as_adjacency_matrix(g_chr1, type = "both", attr = "weight")
   diag(chr_mat) <- 0
   if (any(Matrix::colSums(chr_mat) == 0)) {
     out <- which(Matrix::colSums(chr_mat) == 0)
@@ -48,7 +48,7 @@ lp_fn <- function(x) {
   lp_chr1 <- Matrix::Diagonal(nrow(x), 1) - Dinv %*% x
   if (dim(lp_chr1)[1] > 10000) {
     temp <- RSpectra::eigs_sym(lp_chr1, k = 2, sigma = 0, which = "LM", maxitr = 10000)
-    tmp_tbl <- tibble::as_tibble(temp[["vectors"]])
+    tmp_tbl <- tibble::as_tibble(temp[["vectors"]],.name_repair = make.names)
     colnames(tmp_tbl) <- c("fiedler", "zero")
     tmp_tbl <- tmp_tbl %>%
       dplyr::mutate(bins = as.integer(rownames(x)))
@@ -56,7 +56,7 @@ lp_fn <- function(x) {
     return(list(vectors = tmp_tbl, values = temp[["values"]]))
   } else {
     temp <- eigen(lp_chr1)
-    tmp_tbl <- tibble::as_tibble(temp[["vectors"]][, c(length(temp$values) - 1, length(temp$values))])
+    tmp_tbl <- tibble::as_tibble(temp[["vectors"]][, c(length(temp$values) - 1, length(temp$values))],.name_repair = make.names)
     colnames(tmp_tbl) <- c("fiedler", "zero")
     tmp_tbl <- tmp_tbl %>%
       dplyr::mutate(bins = as.integer(rownames(x)))
@@ -86,18 +86,18 @@ ss <- function(x) {
 #'
 simple_partition_tbl_fn <- function(lp_res, tmp_res) {
   smpl_thresh_tbl <- lp_res$vectors %>%
-    dplyr::mutate(stat = purrr::map_dbl(.data$fiedler, function(x) {
-      cl_a <- .data$fiedler[which(.data$fiedler <= x)]
-      cl_b <- .data$fiedler[which(.data$fiedler > x)]
-      return(ss(rep(c(mean(cl_a), mean(cl_b)), c(length(cl_a), length(cl_b)))) / ss(.data$fiedler))
+    dplyr::mutate(stat = purrr::map_dbl(fiedler, function(x) {
+      cl_a <- fiedler[which(fiedler <= x)]
+      cl_b <- fiedler[which(fiedler > x)]
+      return(ss(rep(c(mean(cl_a), mean(cl_b)), c(length(cl_a), length(cl_b)))) / ss(fiedler))
     }))
   smpl_thresh <- smpl_thresh_tbl %>%
-    dplyr::slice_max(.data$stat) %>%
-    dplyr::select(.data$fiedler) %>%
+    dplyr::slice_max(stat) %>%
+    dplyr::select(fiedler) %>%
     unlist()
   smpl_thresh_tbl <- smpl_thresh_tbl %>%
     dplyr::mutate(
-      smpl.cl = ifelse(.data$fiedler <= smpl_thresh, 1, 2),
+      smpl.cl = ifelse(fiedler <= smpl_thresh, 1, 2),
       res = tmp_res
     )
   return(smpl_thresh_tbl)
@@ -122,7 +122,7 @@ partition_fn <- function(reff_g, smpl_thresh_tbl, tmp_res, cl_var) {
     # create the subnetwork
     tmp_set <- as.integer(smpl_thresh_tbl %>%
       dplyr::filter(!!!rlang::parse_exprs(paste(cl_var, "==", j))) %>%
-      dplyr::select(.data$bins) %>%
+      dplyr::select(bins) %>%
       unlist())
 
     sub_g_temp <- igraph::induced_subgraph(reff_g, which(V(reff_g)$name %in% as.character(tmp_set)))
@@ -242,23 +242,23 @@ BHiCect <- function(res_set, res_num, chr_dat_l, cl_var = "smpl.cl", nworkers) {
   }
   g_chr1 <- igraph::graph_from_data_frame(chr_dat_l[[tmp_res]], directed = F)
   # eliminate self loop
-  g_chr1 <- igraph::delete.edges(g_chr1, E(g_chr1)[which(igraph::which_loop(g_chr1))])
+  g_chr1 <- igraph::delete_edges(g_chr1, E(g_chr1)[which(igraph::which_loop(g_chr1))])
   chr_mat <- get_adj_mat_fn(g_chr1)
   # whole chromosome laplacian
   lpe_chr1 <- lp_fn(chr_mat)
   # spectral clusters
   smpl_thresh_tbl <- simple_partition_tbl_fn(lpe_chr1, tmp_res)
   res_chr1 <- partition_fn(g_chr1, smpl_thresh_tbl, tmp_res, cl_var)
-
+  print(res_chr1)
   # save cluster membership and expansion
   chr1_tree_cl <- list(chr1_tree_cl, res_chr1)
   chr1_tree_cl <- unlist(chr1_tree_cl, recursive = FALSE)
-
+  print(chr1_tree_cl)
   # save cluster statistics
   chr_cl_stat_l[["Root"]] <- smpl_thresh_tbl
   # temporary list of candidate cluster to further partition
   ok_part <- names(chr1_tree_cl)
-
+  print(ok_part)
   # initiate the tree
   chr1_tree_df <- dplyr::bind_rows(chr1_tree_df, do.call(dplyr::bind_rows, lapply(ok_part, function(x) {
     tibble::tibble(from = "Root", to = x)
@@ -333,7 +333,7 @@ BHiCect <- function(res_set, res_num, chr_dat_l, cl_var = "smpl.cl", nworkers) {
 
       sub_g1 <- igraph::graph_from_data_frame(tmp_chr_dat, directed = F)
       # eliminate self loop
-      sub_g1 <- igraph::delete.edges(sub_g1, E(sub_g1)[which(igraph::which_loop(sub_g1))])
+      sub_g1 <- igraph::delete_edges(sub_g1, E(sub_g1)[which(igraph::which_loop(sub_g1))])
       # create the corresponding adjacency matrix
       sub_g1_adj <- get_adj_mat_fn(sub_g1)
       # Skip clusters where the best resolution corresponds to a loop after eliminating empty bins
@@ -392,8 +392,9 @@ BHiCect <- function(res_set, res_num, chr_dat_l, cl_var = "smpl.cl", nworkers) {
       tmp_res <- unlist(strsplit(cl, split = "_"))[1]
       tmp_res_set <- names(sort(res_num[which(res_num <= res_num[tmp_res])], decreasing = T))
       cl_parent <- tmp_tree_df %>%
-        dplyr::filter(.data$to == cl) %>%
-        dplyr::select(.data$from) %>%
+        dplyr::filter(to == cl) %>%
+        # dplyr::select(.data$from) %>%
+        dplyr::select("from") %>%
         unlist()
       tmp_chr_dat_l <- cl_dat_l[[cl_parent]]
       cl_dat <- vector("list", length(tmp_res_set))

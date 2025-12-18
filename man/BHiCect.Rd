@@ -4,7 +4,7 @@
 \alias{BHiCect}
 \title{BHiCect 2.0}
 \usage{
-BHiCect(res_set, res_num, chr_dat_l, cl_var, nworkers)
+BHiCect(res_set, res_num, chr_dat_l, cl_var = "smpl.cl", nworkers)
 }
 \arguments{
 \item{res_set}{Character vector with the HiC resolutions present in the data}
