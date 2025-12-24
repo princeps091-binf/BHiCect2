@@ -249,11 +249,9 @@ BHiCect <- function(res_set, res_num, chr_dat_l, cl_var = "smpl.cl", nworkers) {
   # spectral clusters
   smpl_thresh_tbl <- simple_partition_tbl_fn(lpe_chr1, tmp_res)
   res_chr1 <- partition_fn(g_chr1, smpl_thresh_tbl, tmp_res, cl_var)
-  print(res_chr1)
   # save cluster membership and expansion
   chr1_tree_cl <- list(chr1_tree_cl, res_chr1)
   chr1_tree_cl <- unlist(chr1_tree_cl, recursive = FALSE)
-  print(chr1_tree_cl)
   # save cluster statistics
   chr_cl_stat_l[["Root"]] <- smpl_thresh_tbl
   # temporary list of candidate cluster to further partition
