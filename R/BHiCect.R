@@ -256,7 +256,6 @@ BHiCect <- function(res_set, res_num, chr_dat_l, cl_var = "smpl.cl", nworkers) {
   chr_cl_stat_l[["Root"]] <- smpl_thresh_tbl
   # temporary list of candidate cluster to further partition
   ok_part <- names(chr1_tree_cl)
-  print(ok_part)
   # initiate the tree
   chr1_tree_df <- dplyr::bind_rows(chr1_tree_df, do.call(dplyr::bind_rows, lapply(ok_part, function(x) {
     tibble::tibble(from = "Root", to = x)
