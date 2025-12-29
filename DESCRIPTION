@@ -22,7 +22,12 @@ Imports:
     purrr,
     rlang,
     RSpectra,
-    tibble
+    tibble,
+    RColorBrewer,
+    data.tree,
+    readr,
+    tidyr,
+    viridisLite
 Suggests:
     caret,
     spelling,
