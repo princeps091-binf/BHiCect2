@@ -85,7 +85,12 @@ jobs:
 
       - name: Build and test package
         uses: r-lib/actions/check-r-package@v2
-
+      
+      - name: Download RCheck log
+        uses: actions/download-artifact@v4
+        with:
+          name: my-artifact-name
+          path: /home/runner/work/BHiCect2/BHiCect2/check/BHiCect2.Rcheck/00install.out
   ci-status-check:
     name: Status Check (CI)
     if: ${{ always() }}
