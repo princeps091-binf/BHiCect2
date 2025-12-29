@@ -139,7 +139,7 @@ base_heatmap<-function(cl_col_dat2,col_specs,res_num,chromo){
 
   legend_image <- grDevices::as.raster(col_scale)
   plot(c(0,2),c(0,1),type = 'n', axes = F,xlab = '', ylab = '')
-  graphics::text(x=1.5, y = seq(1/6,1,by=1/6)-1/12, labels = names(res_num))
+  graphics::text(x=1.5, y = seq(1/6,1,by=1/6)-1/12, srt = -90, labels = names(res_num))
   graphics::rasterImage(legend_image, 0, 0, 1,1)
   graphics::par(def.par)
   }
