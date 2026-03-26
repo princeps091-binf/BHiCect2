@@ -332,6 +332,8 @@ library(MASS)
 library(dplyr)
 library(ggplot2)
 # %%
+path <- "/home/vipink/Documents/BHiCeCT2/data/HCT116/4DNFIP8RKGDG.mcool"
+current_MresFile <- hictkR::MultiResFile(path)
 node_registry <- readRDS("~/Documents/BHiCeCT2/data/chr22_node_registry.rds")
 edge_tbl <- readr::read_delim("~/Documents/BHiCeCT2/data/chr22_clustering_results.tsv",delim = '\t')
 perf_stat <- eapply(node_registry,function(node) node$perf)
@@ -366,6 +368,8 @@ node_to_row <- function(node) {
   } 
   return(as_tibble(tidy_data))
 }
+# %%
+
 # %%
 summary_tbl <- tibble::tibble(perf = unlist(perf_stat),kind = unlist(type_anno),depth = node_depth, n_bins = node_size, res = node_res,ID = unlist(node_specs))
 
@@ -427,7 +431,41 @@ plot_node_density_boot <- function(node){
   return(gg)
 }
 # %%
+tmp_cl_tbl <- summary_tbl|>filter(type != 'Leaf')|>arrange(desc(size))|>slice(1)
 
+# %% 
+
+find_genomic_runs <- function(ids, res_level) {
+  if (length(ids) == 0) return(NULL)
+  ids <- sort(unique(ids))
+  
+  # Adaptive threshold: 
+  # At res_level 1, we might allow a 3-bin gap (15kb)
+  # At res_level 5+, we only allow a 1-bin gap (5kb)
+  
+  thresh <- res_level
+  
+  # Find indices where the jump between positions exceeds the threshold
+  breaks <- c(0, which(diff(ids) > thresh), length(ids))
+  
+  purrr::map(1:(length(breaks)-1), ~{
+    start_idx <- breaks[.x] + 1
+    end_idx   <- breaks[.x + 1]
+    # We define the rectangle from start of first bin to END of last bin
+    return(list(start = ids[start_idx], end = ids[end_idx] + res_level))
+  })
+}
+tmp_contiguous_blocks <- find_genomic_runs(unlist(tmp_cl_tbl|>pull(ids)),rev(current_MresFile$resolutions)[tmp_cl_tbl|>pull(res_level)])
+
+
+   
+    # Generate all pairwise combinations of runs within this cluster
+expand.grid(r1 = 1:length(runs), r2 = 1:length(runs)) %>%
+
+
+
+# %%
+max_res_bins <- hictkR::File(path, resolution = current_MresFile$resolutions[1])$bins
 # %%
 tree_graph <- graph_from_data_frame(edge_tbl, directed = TRUE)
 leaf_indices <- which(degree(tree_graph, mode = "out") == 0)
