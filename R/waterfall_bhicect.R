@@ -369,17 +369,15 @@ node_to_row <- function(node) {
   return(as_tibble(tidy_data))
 }
 # %%
-
-# %%
-summary_tbl <- tibble::tibble(perf = unlist(perf_stat),kind = unlist(type_anno),depth = node_depth, n_bins = node_size, res = node_res,ID = unlist(node_specs))
+summary_tbl <- do.call(bind_rows,eapply(node_registry,function(x) node_to_row(x)))
 
 # %%
 summary_tbl |>
-  ggplot(aes(perf,col=kind))+
+  ggplot(aes(perf,col=type))+
   geom_density()
 # %%
 summary_tbl |>
-  ggplot(aes(depth,n_bins))+
+  ggplot(aes(depth,size))+
   geom_point()+
   scale_y_log10()
 
@@ -393,16 +391,16 @@ summary_tbl |>
 # %%
 
 summary_tbl |>
-  mutate(lbin = log10(n_bins))|>
+  mutate(lbin = log10(size))|>
   ggplot(aes(lbin,perf))+
   geom_point()+
   scale_y_log10()
 # %%
 # Calculate stats from your bootstrap 'null_scores'
-plot_node_density_boot <- function(node){
+plot_node_density_boot <- function(node_id,summary_tbl){
 # 1. Define range up to 1.0 only
   x_range <- seq(0, 1, length.out = 200)
-  
+  node <- summary_tbl|>filter(id == node_id)
   # 2. Calculate standard density for the valid range
   density_values <- (1/node$null_sd) * dt((x_range - node$null_mu)/node$null_sd, df = node$df)
   
@@ -422,7 +420,7 @@ plot_node_density_boot <- function(node){
     ggplot2::geom_vline(xintercept = min(node$obs, 1), color = "red", linewidth = 1) +
     ggplot2::labs(
       title = paste("Censored Null Distribution: Node", node$id),
-      subtitle = paste("Mass accumulated at 1.0:", round(accumulated_mass, 4)),
+      subtitle = paste("Probability of null greater than observed:", node$perf),
       x = "Separability Score",
       y = "Density"
     ) +
@@ -431,10 +429,6 @@ plot_node_density_boot <- function(node){
   return(gg)
 }
 # %%
-tmp_cl_tbl <- summary_tbl|>filter(type != 'Leaf')|>arrange(desc(size))|>slice(1)
-
-# %% 
-
 find_genomic_runs <- function(ids, res_level) {
   if (length(ids) == 0) return(NULL)
   ids <- sort(unique(ids))
@@ -455,15 +449,34 @@ find_genomic_runs <- function(ids, res_level) {
     return(list(start = ids[start_idx], end = ids[end_idx] + res_level))
   })
 }
+# %%
+function(x){
+tmp_cl_tbl <- summary_tbl|>filter(type != 'Leaf')|>arrange(desc(size))|>slice(34)
 tmp_contiguous_blocks <- find_genomic_runs(unlist(tmp_cl_tbl|>pull(ids)),rev(current_MresFile$resolutions)[tmp_cl_tbl|>pull(res_level)])
-
+# %%
 
    
     # Generate all pairwise combinations of runs within this cluster
-expand.grid(r1 = 1:length(runs), r2 = 1:length(runs)) %>%
 
+rectangle_set_df <- expand.grid(r1 = seq_along(tmp_contiguous_blocks), r2 = seq_along(tmp_contiguous_blocks)) %>%
+purrr::pmap_dfr(function(r1,r2){
+run_i <- tmp_contiguous_blocks[[r1]]
+        run_j <- tmp_contiguous_blocks[[r2]]
+        tibble(
+          xmin = run_i$start , xmax = run_i$end ,
+          ymin = run_j$start , ymax = run_j$end ,
+        )
+      })
+return(rectangle_set_df|>mutate(depth = tmp_cl_tbl|>pull(depth)))
+}
+# %%
 
-
+ggplot(rectangle_set_df) +
+  geom_rect(aes(xmin = xmin, xmax = xmax, ymin = ymin, ymax = ymax), 
+            color = NA,      # CRITICAL: No borders for 5.5k blocks
+            alpha = 0.5) +   # Transparency lets nested TADs show through
+  theme_void() +             # Removes background noise
+  coord_fixed()
 # %%
 max_res_bins <- hictkR::File(path, resolution = current_MresFile$resolutions[1])$bins
 # %%
