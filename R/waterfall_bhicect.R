@@ -269,8 +269,6 @@ node_to_row <- function(node) {
   # 2. Capture the metadata attributes
   # 3. Combine them into one flat list
   all_data <- c(unclass(node), attributes(node))
-  
-  
   # 5. Handle list-columns
   # If an attribute is a vector (like bin IDs), wrap it in list() 
   # so it occupies exactly one cell in the tibble row.
@@ -302,9 +300,9 @@ waterfall_bhicet <- function(MresFile,chrom,threshold=0.5){
 options(scipen=9999)
 path <- "/home/vipink/Documents/BHiCeCT2/data/HCT116/4DNFIP8RKGDG.mcool"
 current_MresFile <- hictkR::MultiResFile(path)
-res_obj <- waterfall_bhicet(current_MresFile, "chr22", threshold = 0.5)
+res_obj <- waterfall_bhicet(current_MresFile, "chr19", threshold = 0.5)
 # %%
-saveRDS(res_obj, file = "~/Documents/BHiCeCT2/data/chr22_res_obj.rds")
+saveRDS(res_obj, file = "~/Documents/BHiCeCT2/data/chr19_res_obj.rds")
 # %%
 
 library(igraph)
@@ -315,8 +313,9 @@ library(ggplot2)
 # %%
 path <- "/home/vipink/Documents/BHiCeCT2/data/HCT116/4DNFIP8RKGDG.mcool"
 current_MresFile <- hictkR::MultiResFile(path)
-res_obj <- readRDS("~/Documents/BHiCeCT2/data/chr22_res_obj.rds")
+res_obj <- readRDS("~/Documents/BHiCeCT2/data/chr19_res_obj.rds")
 summary_tbl <- res_obj$nodes
+summary_tbl <- summary_tbl|>mutate(parent_res_level = stringr::str_split(parent_id,'_')[[1]][2]) |> mutate(parent_res_level = as.integer(stringr::str_sub(parent_res_level,2,-1)))
 # %%
 summary_tbl |>
   ggplot(aes(perf,col=type))+
@@ -343,10 +342,10 @@ summary_tbl |>
   scale_y_log10()
 # %%
 # Calculate stats from your bootstrap 'null_scores'
-plot_node_density_boot <- function(node_id,summary_tbl){
+plot_node_density_boot <- function(node_id, summary_tbl) {
 # 1. Define range up to 1.0 only
   x_range <- seq(0, 1, length.out = 200)
-  node <- summary_tbl|>filter(id == node_id)
+  node <- summary_tbl |> filter(id == node_id)
   # 2. Calculate standard density for the valid range
   density_values <- (1/node$null_sd) * dt((x_range - node$null_mu)/node$null_sd, df = node$df)
   
@@ -359,7 +358,7 @@ plot_node_density_boot <- function(node_id,summary_tbl){
     ggplot2::ggplot(ggplot2::aes(score, dens)) +
     ggplot2::geom_line() +
     # Add a visual "spike" at 1.0 to show the accumulated mass
-    ggplot2::geom_segment(ggplot2::aes(x = 1, xend = 1, y = 0, yend = max(dens)), 
+    ggplot2::geom_segment(ggplot2::aes(x = 1, xend = 1, y = 0, yend = max(dens)),
                           linetype = "dotted", color = "blue") +
     ggplot2::geom_point(ggplot2::aes(x = 1, y = max(dens)), color = "blue") +
     # Mark the observed score (capped at 1 for the intercept)
@@ -378,17 +377,11 @@ plot_node_density_boot <- function(node_id,summary_tbl){
 find_genomic_runs <- function(ids, res_level) {
   if (length(ids) == 0) return(NULL)
   ids <- sort(unique(ids))
-  
-  # Adaptive threshold: 
-  # At res_level 1, we might allow a 3-bin gap (15kb)
-  # At res_level 5+, we only allow a 1-bin gap (5kb)
-  
   thresh <- res_level
-  
   # Find indices where the jump between positions exceeds the threshold
   breaks <- c(0, which(diff(ids) > thresh), length(ids))
   
-  purrr::map(1:(length(breaks)-1), ~{
+  purrr::map(1:(length(breaks) - 1), ~{
     start_idx <- breaks[.x] + 1
     end_idx   <- breaks[.x + 1]
     # We define the rectangle from start of first bin to END of last bin
@@ -396,72 +389,52 @@ find_genomic_runs <- function(ids, res_level) {
   })
 }
 # %%
-#function(x){
-tmp_cl_tbl <- summary_tbl|>filter(type != 'Leaf')|>arrange(desc(size))|>slice(1)
-tmp_contiguous_blocks <- find_genomic_runs(unlist(tmp_cl_tbl|>pull(ids)),rev(current_MresFile$resolutions)[tmp_cl_tbl|>pull(res_level)])
+get_cl_plot_rectangles <- function(x, current_MresFile) {
+  tmp_contiguous_blocks <- find_genomic_runs(unlist(x|>pull(ids)),rev(current_MresFile$resolutions)[x|>pull(res_level)])
+      # Generate all pairwise combinations of runs within this cluster
+
+  rectangle_set_df <- expand.grid(r1 = seq_along(tmp_contiguous_blocks), r2 = seq_along(tmp_contiguous_blocks)) %>%
+  purrr::pmap_dfr(function(r1, r2){
+  run_i <- tmp_contiguous_blocks[[r1]]
+          run_j <- tmp_contiguous_blocks[[r2]]
+          tibble(
+            xmin = run_i$start, xmax = run_i$end,
+            ymin = run_j$start, ymax = run_j$end,
+          )
+        })
+  return(rectangle_set_df |> mutate(depth = x |> pull(depth)))
+}
 # %%
-
-   
-    # Generate all pairwise combinations of runs within this cluster
-
-rectangle_set_df <- expand.grid(r1 = seq_along(tmp_contiguous_blocks), r2 = seq_along(tmp_contiguous_blocks)) %>%
-purrr::pmap_dfr(function(r1,r2){
-run_i <- tmp_contiguous_blocks[[r1]]
-        run_j <- tmp_contiguous_blocks[[r2]]
-        tibble(
-          xmin = run_i$start , xmax = run_i$end ,
-          ymin = run_j$start , ymax = run_j$end ,
-        )
-      })
-#return(rectangle_set_df|>mutate(depth = tmp_cl_tbl|>pull(depth)))
-#}
+all_rect_tbl <- purrr::map_dfr(seq_len(summary_tbl |> nrow()), function(idx) {
+        get_cl_plot_rectangles(summary_tbl |> slice(idx),current_MresFile)
+        })
 # %%
-
-ggplot(rectangle_set_df) +
-  geom_rect(aes(xmin = xmin, xmax = xmax, ymin = ymin, ymax = ymax), 
-            color = NA,      # CRITICAL: No borders for 5.5k blocks
-            alpha = 0.5) +   # Transparency lets nested TADs show through
-  theme_void() +             # Removes background noise
+ggplot(all_rect_tbl |> arrange(depth)) +
+  geom_rect(aes(xmin = xmin, xmax = xmax, ymin = ymin, ymax = ymax, fill = depth),
+            color = NA,     # CRITICAL: No borders for 5.5k blocks
+            alpha = 0.75) +   # Transparency lets nested TADs show through
+  theme_minimal() +             # Removes background noise
+  scale_fill_viridis_c(direction = -1, option = "magma")+
+  xlim(0,59000000)+
+  ylim(0,59000000)+
   coord_fixed()
 # %%
-max_res_bins <- hictkR::File(path, resolution = current_MresFile$resolutions[1])$bins
 # %%
 tree_graph <- graph_from_data_frame(edge_tbl, directed = TRUE)
 leaf_indices <- which(degree(tree_graph, mode = "out") == 0)
 leaf_dist_mat <- distances(
-  graph = tree_graph, 
-  v = names(leaf_indices), 
-  to = names(leaf_indices), 
+  graph = tree_graph,
+  v = names(leaf_indices),
+  to = names(leaf_indices),
   mode = "all"
 )
-dist_obj <- as.dist(leaf_dist_mat)
-# 2. Re-cluster or use the existing tree structure
-# 'OLO' (Optimal Leaf Ordering) is the gold standard for this
-ordering <- seriate(dist_obj, method = "OLO")
-
-# 3. Get the permutation vector
-new_order <- get_order(ordering)
-
-# 4. Reorder your matrix
-ordered_leaf_mat <- leaf_dist_mat[new_order, new_order]
-# Re-plot using the optimized order
 # %%
-library(viridis)
-#image(t(ordered_leaf_mat[nrow(ordered_leaf_mat):1, ]), 
-#      col = hcl.colors(100, rev = TRUE), 
-#      useRaster = TRUE, 
-#      axes = FALSE)
-image(leaf_dist_mat, 
-      col = hcl.colors(100, rev = TRUE), 
-      useRaster = TRUE, 
-      axes = FALSE)
-# %%
-ggraph(tree_graph, layout = 'dendrogram', circular = TRUE) + 
+ggraph(tree_graph, layout = "dendrogram", circular = TRUE) +
   # Use very thin, transparent lines for massive trees
-  geom_edge_diagonal(alpha = 1, width = 0.1, color = "grey50") + 
+  geom_edge_diagonal(alpha = 1, width = 0.1, color = "grey50") +
   # Rasterize or shrink nodes
-  geom_node_point(aes(size = 0.01)) + 
+  geom_node_point(aes(size = 0.01)) +
   # If you want to see specific "important" labels
-  # geom_node_text(aes(label = name), repel = TRUE, size = 1) + 
-  theme_graph() + 
+  # geom_node_text(aes(label = name), repel = TRUE, size = 1) +
+  theme_graph() +
   theme(legend.position = "none")
