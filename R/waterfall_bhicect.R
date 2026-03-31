@@ -192,13 +192,13 @@ recursive_spectral <- function(MresFile,chrom,ids, res_level = 1, depth = 1, par
   mu_null1 <- mean(boot_stat_vec,na.rm=TRUE)
   sd_null1 <- sd(boot_stat_vec,na.rm=TRUE)
   tmp_df1 <- sum(!is.na(boot_stat_vec)) - 1
-  t_stat1 <- (max(spec_res$stat) - mu_null1) / sd_null1
+  t_stat1 <- (max(spec_res$stat,na.rm=TRUE) - mu_null1) / sd_null1
   perf1 <- pt(t_stat1, df=tmp_df1, lower.tail = FALSE)
 
 # Check for "Ambiguity Zone" (e.g., p-value between 0.01 and 0.2)
   is_ambiguous <- perf1 > 0.45 && perf1 < 0.55
-  
-  if (is_ambiguous) {
+  print(is_ambiguous)
+  if (is_ambiguous | is.nan(is_ambiguous) | is.na(is_ambiguous)) {
     print(paste0(current_id,": ambiguous separability so running larger bootstrap"))
     # --- STAGE 2: Refinement Batch ---
     high_boot_stat_vec <- replicate(40, {
@@ -264,91 +264,6 @@ recursive_spectral <- function(MresFile,chrom,ids, res_level = 1, depth = 1, par
   return(rbind(current_edge, child_edges))
 }
 
-waterfall_bhicet <- function(MresFile,chrom,threshold=0.5){
-
-  f <- hictkR::File(MresFile$path, resolution = rev(MresFile$resolutions)[1])
-  init_ids <- f$bins|>dplyr::filter(chrom ==chrom)|>dplyr::pull(start)
-  node_registry <- new.env(hash = TRUE, parent = emptyenv())
-
-  spec_res <- recursive_spectral(MresFile,chrom,init_ids, res_level = 1, depth = 1, parent_id = NA, threshold = threshold,node_registry)
-  cluster_tibble <- as.list(noode_registry) %>% purrr::map_dfr(as_tibble)
-
-  return(list(
-      nodes = cluster_tibble,
-      edges = as_tibble(edge_list)
-    ))
-}
-# %%
-options(scipen=9999)
-path <- "/home/vipink/Documents/BHiCeCT2/data/HCT116/4DNFIP8RKGDG.mcool"
-current_MresFile <- hictkR::MultiResFile(path)
-res_obj <- waterfall_bhicet(current_MresFile,"chr22",threshold=0.5)
-# %%
-options(scipen=9999)
-path <- "/home/vipink/Documents/BHiCeCT2/data/HCT116/4DNFIP8RKGDG.mcool"
-
-current_MresFile <- hictkR::MultiResFile(path)
-f <- hictkR::File(path, resolution = rev(current_MresFile$resolutions)[1])
-chr_dat <- hictkR::fetch(f, "chr22", normalization = "KR", join = TRUE)
-chr_dat <- chr_dat |> mutate(bin1_id = start1, bin2_id = start2)
-box_obj <- boxcox(chr_dat$count ~ 1, lambda = seq(-2, 2, 1 / 10),plotit=FALSE)
-exact_lambda <- box_obj$x[which.max(box_obj$y)]
-
-if (exact_lambda == 0) {
-  transformed_data <- log(chr_data$count)
-} else {
-  transformed_data <- (chr_dat$count^exact_lambda - 1) / exact_lambda
-}
-chr_dat <- chr_dat |> mutate(weight = transformed_data)
-# %%
-
-tmp_partition <- spectral_bipartition(chr_dat|>dplyr::select(bin1_id,bin2_id,weight), "MB")
-
-boot_stat_vec <- replicate(100, {
-  tmp_tbl <- spectral_bipartition(chr_dat |> dplyr::select(bin1_id, bin2_id,weight) |> mutate(weight = sample(weight)), "MB")
-  max(tmp_tbl$stat)
-})
-good_performance <- (sum(boot_stat_vec > max(tmp_partition$stat))/100) < 0.5
-
-
-tmp_children_ids <-tmp_partition%>%group_by(smpl.cl)%>%summarise(ids=list(bins))%>%pull(ids)
-# %%
-get_interaction_matrix("chr22",tmp_children_ids[[1]],4,current_MresFile)
-# %%
-fetch_nested_locations("chr22",tmp_children_ids[[2]],4,6,current_MresFile)
-# %%
-node_registry <- new.env(hash = TRUE, parent = emptyenv())
-init_ids <- unique(c(chr_dat$bin1_id,chr_dat$bin2_id))
-spec_res <- recursive_spectral(current_MresFile,"chr22",init_ids, res_level = 1, depth = 1, parent_id = NA, threshold = 0.5)
-# %%
-saveRDS(node_registry, file = "~/Documents/BHiCeCT2/data/chr22_node_registry.rds")
-
-readr::write_tsv(spec_res, file = "~/Documents/BHiCeCT2/data/chr22_clustering_results.tsv")
-# %%
-
-library(igraph)
-library(hictkR)
-library(MASS)
-library(dplyr)
-library(ggplot2)
-# %%
-path <- "/home/vipink/Documents/BHiCeCT2/data/HCT116/4DNFIP8RKGDG.mcool"
-current_MresFile <- hictkR::MultiResFile(path)
-node_registry <- readRDS("~/Documents/BHiCeCT2/data/chr22_node_registry.rds")
-edge_tbl <- readr::read_delim("~/Documents/BHiCeCT2/data/chr22_clustering_results.tsv",delim = '\t')
-perf_stat <- eapply(node_registry,function(node) node$perf)
-type_anno <- eapply(node_registry,function(node) node$type)
-node_specs <- eapply(node_registry,function(node) node$id)
-# %%
-
-node_depth <- purrr::map_dbl(node_specs,function(x) as.numeric(stringr::str_sub(unlist(stringr::str_split(x,'_'))[[1]],2)))
-
-node_res <- purrr::map_dbl(node_specs,function(x) as.numeric(stringr::str_sub(unlist(stringr::str_split(x,'_'))[[2]],2)))
-
-node_size <- purrr::map_dbl(node_specs,function(x) as.numeric(unlist(stringr::str_split(x,'_'))[[3]]))
-
-# %%
-
 node_to_row <- function(node) {
   # 1. Capture the underlying list data
   # 2. Capture the metadata attributes
@@ -368,9 +283,40 @@ node_to_row <- function(node) {
   } 
   return(as_tibble(tidy_data))
 }
-# %%
-summary_tbl <- do.call(bind_rows,eapply(node_registry,function(x) node_to_row(x)))
 
+waterfall_bhicet <- function(MresFile,chrom,threshold=0.5){
+
+  f <- hictkR::File(MresFile$path, resolution = rev(MresFile$resolutions)[1])
+  init_ids <- f$bins|>dplyr::filter(chrom ==chrom)|>dplyr::pull(start)
+  node_registry <- new.env(hash = TRUE, parent = emptyenv())
+
+  spec_res <- recursive_spectral(MresFile,chrom,init_ids, res_level = 1, depth = 1, parent_id = NA, threshold = threshold,node_registry)
+  cluster_tibble <- do.call(bind_rows,eapply(node_registry,function(x) node_to_row(x)))
+
+  return(list(
+      nodes = cluster_tibble,
+      edges = spec_res
+    ))
+}
+# %%
+options(scipen=9999)
+path <- "/home/vipink/Documents/BHiCeCT2/data/HCT116/4DNFIP8RKGDG.mcool"
+current_MresFile <- hictkR::MultiResFile(path)
+res_obj <- waterfall_bhicet(current_MresFile, "chr22", threshold = 0.5)
+# %%
+saveRDS(res_obj, file = "~/Documents/BHiCeCT2/data/chr22_res_obj.rds")
+# %%
+
+library(igraph)
+library(hictkR)
+library(MASS)
+library(dplyr)
+library(ggplot2)
+# %%
+path <- "/home/vipink/Documents/BHiCeCT2/data/HCT116/4DNFIP8RKGDG.mcool"
+current_MresFile <- hictkR::MultiResFile(path)
+res_obj <- readRDS("~/Documents/BHiCeCT2/data/chr22_res_obj.rds")
+summary_tbl <- res_obj$nodes
 # %%
 summary_tbl |>
   ggplot(aes(perf,col=type))+
@@ -384,7 +330,7 @@ summary_tbl |>
 # %%
 
 summary_tbl |>
-  ggplot(aes(depth,res))+
+  ggplot(aes(depth,res_level))+
   geom_point()+
   scale_y_log10()
 
@@ -450,8 +396,8 @@ find_genomic_runs <- function(ids, res_level) {
   })
 }
 # %%
-function(x){
-tmp_cl_tbl <- summary_tbl|>filter(type != 'Leaf')|>arrange(desc(size))|>slice(34)
+#function(x){
+tmp_cl_tbl <- summary_tbl|>filter(type != 'Leaf')|>arrange(desc(size))|>slice(1)
 tmp_contiguous_blocks <- find_genomic_runs(unlist(tmp_cl_tbl|>pull(ids)),rev(current_MresFile$resolutions)[tmp_cl_tbl|>pull(res_level)])
 # %%
 
@@ -467,8 +413,8 @@ run_i <- tmp_contiguous_blocks[[r1]]
           ymin = run_j$start , ymax = run_j$end ,
         )
       })
-return(rectangle_set_df|>mutate(depth = tmp_cl_tbl|>pull(depth)))
-}
+#return(rectangle_set_df|>mutate(depth = tmp_cl_tbl|>pull(depth)))
+#}
 # %%
 
 ggplot(rectangle_set_df) +
