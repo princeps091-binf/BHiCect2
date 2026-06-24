@@ -17,3 +17,4 @@
 ^\.gitignore$
 ^\.markdownlint\.yaml$
 ^\.pre-commit-config\.yaml$
+^dev$
