@@ -5,9 +5,9 @@ devtools::load_all()
 options(scipen = 9999)
 path <- "/home/vipink/Documents/BHiCeCT2/data/HCT116/4DNFIP8RKGDG.mcool"
 current_MresFile <- hictkR::MultiResFile(path)
-res_obj <- waterfall_bhicet(current_MresFile, "chr10", threshold = 0.5)
+res_obj <- waterfall_bhicet(current_MresFile, "chr20", threshold = 0.5)
 # %%
-saveRDS(res_obj, file = "~/Documents/BHiCeCT2/data/chr10_res_obj.rds")
+saveRDS(res_obj, file = "~/Documents/BHiCeCT2/data/chr20_res_obj.rds")
 # %%
 
 library(igraph)
@@ -23,7 +23,30 @@ summary_tbl <- res_obj$nodes
 summary_tbl <- summary_tbl |>
         mutate(parent_res_level = stringr::str_split(parent_id, "_")[[1]][2]) |>
         mutate(parent_res_level = as.integer(stringr::str_sub(parent_res_level, 2, -1)))
-#
+summary_tbl |>
+        ggplot(aes(perf, col = type)) +
+        geom_density()
+# %%
+summary_tbl |>
+        ggplot(aes(depth, size)) +
+        geom_point() +
+        scale_y_log10()
+
+# %%
+
+summary_tbl |>
+        ggplot(aes(depth, res_level)) +
+        geom_point() +
+        scale_y_log10()
+
+# %%
+
+summary_tbl |>
+        mutate(lbin = log10(size)) |>
+        ggplot(aes(lbin, perf)) +
+        geom_point() +
+        scale_y_log10()
+##
 find_genomic_runs <- function(ids, res_level) {
         if (length(ids) == 0) {
                 return(NULL)

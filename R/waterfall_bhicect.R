@@ -78,24 +78,48 @@ get_adj_mat_fn <- function(g_chr1) {
 #' plot(result$vectors$fiedler)
 #' }
 lp_fn <- function(x) {
-  Dinv <- Matrix::Diagonal(nrow(x), 1 / Matrix::rowSums(x))
-
-  lp_chr1 <- Matrix::Diagonal(nrow(x), 1) - Dinv %*% x
-  if (dim(lp_chr1)[1] > 10000) {
-    temp <- RSpectra::eigs_sym(lp_chr1, k = 2, sigma = .Machine$double.xmin, which = "LM", maxitr = 10000)
-    tmp_tbl <- tibble::as_tibble(temp[["vectors"]],.name_repair = make.names)
+  n_nodes <- nrow(x)
+  bin_names <- as.integer(rownames(x)) 
+  # 1. Compute D^(-1/2) safely handling unmapped or zero-interaction bins
+  row_sums <- Matrix::rowSums(x)
+  d_inv_sqrt_vals <- ifelse(row_sums > 0, 1 / sqrt(row_sums), 0)
+  D_inv_sqrt <- Matrix::Diagonal(n_nodes, d_inv_sqrt_vals)
+  
+  #Dinv <- Matrix::Diagonal(nrow(x), 1 / Matrix::rowSums(x))
+  # 2. Construct L_sym (Guaranteed perfectly symmetric for eigs_sym)
+  I_mat <- Matrix::Diagonal(n_nodes, 1)
+  lp_sym <- I_mat - (D_inv_sqrt %*% x %*% D_inv_sqrt)
+  #lp_chr1 <- Matrix::Diagonal(nrow(x), 1) - Dinv %*% x
+  if (n_nodes > 1000) {
+    # Primary Path: Leverage your ultra-fast direct SM extraction discovery
+    temp <- tryCatch({
+      RSpectra::eigs_sym(lp_sym, k = 2, which = "SM", maxitr = 10000)
+    }, error = function(e) {
+      # Bulletproof Fallback: If messy user data prevents SM convergence,
+      # drop back to a stable, slightly shifted shift-invert path
+      RSpectra::eigs_sym(lp_sym, k = 2, sigma = 1e-5, which = "LM", maxitr = 10000)
+    })
+    # 3. CRITICAL STEP: Transform u_sym back to the recommended v_rw space
+    # v_rw = D^(-1/2) %*% u_sym
+    rw_vectors <- as.matrix(D_inv_sqrt %*% temp[["vectors"]])
+    tmp_tbl <- tibble::as_tibble(rw_vectors, .name_repair = "minimal")
     colnames(tmp_tbl) <- c("fiedler", "zero")
     tmp_tbl <- tmp_tbl |>
       dplyr::mutate(bins = as.integer(rownames(x)))
 
     return(list(vectors = tmp_tbl, values = temp[["values"]]))
   } else {
-    temp <- eigen(lp_chr1)
-    tmp_tbl <- tibble::as_tibble(temp[["vectors"]][, c(length(temp$values) - 1, length(temp$values))],.name_repair = make.names)
+    temp <- eigen(as.matrix(lp_sym))
+    # Base R eigen returns values sorted in decreasing order, 
+    # meaning Fiedler is second-to-last and Trivial Zero is the last column
+    idx_fiedler <- n_nodes - 1
+    idx_zero    <- n_nodes
+    rw_vectors_dense <- as.matrix(D_inv_sqrt %*% temp[["vectors"]][, c(idx_fiedler, idx_zero)])
+    tmp_tbl <- tibble::as_tibble(rw_vectors_dense, .name_repair = "minimal")
     colnames(tmp_tbl) <- c("fiedler", "zero")
     tmp_tbl <- tmp_tbl %>%
       dplyr::mutate(bins = as.integer(rownames(x)))
-    return(list(vectors = tmp_tbl, values = temp[["values"]][c(length(temp$values) - 1, length(temp$values))]))
+    return(list(vectors = tmp_tbl, values = temp[["values"]][c(idx_fiedler, idx_zero)]))
   }
 }
 
@@ -419,17 +443,41 @@ get_interaction_matrix <- function(chrom,ids,res_level, MresFile) {
 }
 
 # %%
-recursive_spectral <- function(MresFile,chrom,ids, res_level = 1, depth = 1, parent_id = NA, threshold,node_registry) {
+#' Recursive Spectral Bipartitioning of Chromatin Interactions
+#'
+#' Executes a multi-resolution recursive spectral clustering algorithm on a given 
+#' chromatin interaction matrix, building a tree topology based on empirical 
+#' bootstrapped separability thresholds.
+#'
+#' @param MresFile A multi-resolution file object containing interaction datasets.
+#' @param chrom Character string specifying the target chromosome (e.g., "chr1").
+#' @param ids Numeric vector of genomic bin indices representing the current space.
+#' @param res_level Integer indicating the current resolution index tier. Defaults to 1.
+#' @param depth Integer tracking the current structural depth of the recursion tree. Defaults to 1.
+#' @param parent_id Character string tracking the unique identifier of the parent node. Defaults to \code{NA}.
+#' @param threshold Numeric value setting the alpha significance value for the permutation test.
+#' @param node_registry An environment object where constructed node metadata classes are registered.
+#' @param verbose Logical indicating whether to print runtime updates via messages. Defaults to \code{TRUE}.
+#'
+#' @return A data.frame containing network edges with two columns: \code{from} and \code{to}.
+#' @export
+#'
+#' @importFrom dplyr mutate group_by summarise pull
+#' @importFrom stats mean sd pt
+#' @keywords internal
+recursive_spectral <- function(MresFile, chrom, ids, res_level = 1, depth = 1, parent_id = NA, threshold,node_registry,  verbose = TRUE) {
   # --- 1. Initialization and ID Generation ---
   # Infer maximum resolution from MresFile
   max_res <- length(MresFile$resolutions)
   # Generate unique ID for this attempt
   current_id <- paste0("D", depth, "_R", res_level, "_", length(ids), "_", min(ids), "_", max(ids))
   n_locs <- length(ids)
-
+  
+  if (n_locs == 0) return(data.frame())
+  
   # --- BRANCH 1: Less than 3 locations -> Go to higher resolution ---
   if (n_locs < 4 && res_level < max_res) {
-    print(paste0(current_id,": higher res because too few bins"))
+    if (verbose) message(current_id, ": escalating resolution due to too few bins")
     # logic to select next higher and divisible resolution
     candidate_res_lvls <- (res_level + 1):max_res
     current_val <- rev(MresFile$resolutions)[res_level]
@@ -439,8 +487,9 @@ recursive_spectral <- function(MresFile,chrom,ids, res_level = 1, depth = 1, par
     high_res_ids <- fetch_nested_locations(chrom,ids, res_level,high_res_level,MresFile)
     return(recursive_spectral(MresFile,chrom,high_res_ids, high_res_level, depth, parent_id,threshold,node_registry))
   }
-  # --- 3. Branch: Terminal Leaf (Smallest resolution) ---
+  # ---BRANCH 2: Terminal Leaf (Smallest resolution) ---
   if (res_level == max_res && n_locs < 4){
+    if (verbose) message(current_id, ": terminal leaf - hit maximum resolution boundary")
     print(paste0(current_id,": Found to be leaf because too small"))
     node_obj <- new_flat_node(current_id, "Leaf", n_locs, res_level, depth, NA, parent_id, ids, NA,NA,NA,NA)
     assign(current_id, node_obj, envir = node_registry)
@@ -448,11 +497,11 @@ recursive_spectral <- function(MresFile,chrom,ids, res_level = 1, depth = 1, par
     }
   # --- Spectral Clustering Step ---
   # Slice the adjacency matrix for the current resolution and IDs
-  print(paste0(current_id,": Spectral clustering"))
+  if (verbose) message(paste0(current_id,": Spectral clustering"))
   data_tbl <- get_interaction_matrix(chrom,ids,res_level,MresFile)
   if (all(data_tbl$bin1_id == data_tbl$bin2_id) || is.null(data_tbl)){
 
-    print(paste0(current_id,": Found to be leaf because no interaction data"))
+    if (verbose) message(paste0(current_id,": Found to be leaf because no interaction data"))
     node_obj <- new_flat_node(current_id, "Leaf", n_locs, res_level, depth, NA, parent_id, ids,NA,NA,NA,NA)
     assign(current_id, node_obj, envir = node_registry)
     return(if(!is.na(parent_id)) data.frame(from=parent_id, to=current_id) else data.frame())
@@ -483,9 +532,8 @@ recursive_spectral <- function(MresFile,chrom,ids, res_level = 1, depth = 1, par
 
 # Check for "Ambiguity Zone" (e.g., p-value between 0.01 and 0.2)
   is_ambiguous <- perf1 > 0.45 && perf1 < 0.55
-  print(is_ambiguous)
   if (is_ambiguous || is.nan(is_ambiguous) || is.na(is_ambiguous)) {
-    print(paste0(current_id,": ambiguous separability so running larger bootstrap"))
+    if (verbose) message(paste0(current_id,": ambiguous separability so running larger bootstrap"))
     # --- STAGE 2: Refinement Batch ---
     high_boot_stat_vec <- replicate(40, {
       tryCatch({
@@ -509,14 +557,11 @@ recursive_spectral <- function(MresFile,chrom,ids, res_level = 1, depth = 1, par
   }
   is_separable <- (perf < threshold)
   }
-  print(paste0(threshold,":",perf))
-  # --- BRANCH 2: Is the cluster separable? ---
-  # We use the 'is_separable' logic (performance < threshold)
   # --- BRANCH 3 & 4: Logic for Not Separable ---
   if (!is_separable) {
     if (res_level < max_res) {
       # PIVOT: Higher resolution
-    print(paste0(current_id,": Higher resolution because not separable"))
+    if (verbose) message(paste0(current_id,": Higher resolution because not separable"))
     candidate_res_lvls <- (res_level + 1):max_res
     current_val <- rev(MresFile$resolutions)[res_level]
     candidate_vals <- rev(MresFile$resolutions)[candidate_res_lvls]
@@ -527,7 +572,7 @@ recursive_spectral <- function(MresFile,chrom,ids, res_level = 1, depth = 1, par
     } else {
       # TERMINATE: Lead Node (Leaf)
       # id, type, size, perf, "res_level, depth, ids
-      print(paste0(current_id,": Found to be leaf"))
+      if (verbose) message(paste0(current_id,": Found to be leaf"))
       node_obj <- new_flat_node(current_id, "Leaf", n_locs, res_level, depth, perf, parent_id, ids, mu_null, sd_null, max(spec_res$stat),df_null)
       assign(current_id, node_obj, envir = node_registry)
       return(if(!is.na(parent_id)) data.frame(from=parent_id, to=current_id) else data.frame())
@@ -540,7 +585,7 @@ recursive_spectral <- function(MresFile,chrom,ids, res_level = 1, depth = 1, par
   # Track edge for this node
   current_edge <- if(!is.na(parent_id)) data.frame(from=parent_id, to=current_id) else data.frame()
   # Split IDs and Recurse to next depth
-  print(paste0(current_id,": split into children clusters to process"))
+  if (verbose) message(paste0(current_id,": split into children clusters to process"))
   split_ids <-spec_res%>%group_by(smpl.cl)%>%summarise(ids=list(bins))%>%pull(ids)
   child_edges <- do.call(rbind, lapply(split_ids, function(child_ids) {
     recursive_spectral(MresFile, chrom, child_ids, res_level, depth + 1, current_id,threshold,node_registry)
@@ -648,165 +693,3 @@ waterfall_bhicet <- function(MresFile,chrom,threshold=0.5){
       edges = spec_res
     ))
 }
-# %%
-options(scipen=9999)
-path <- "/home/vipink/Documents/BHiCeCT2/data/HCT116/4DNFIP8RKGDG.mcool"
-current_MresFile <- hictkR::MultiResFile(path)
-res_obj <- waterfall_bhicet(current_MresFile, "chr10", threshold = 0.5)
-# %%
-saveRDS(res_obj, file = "~/Documents/BHiCeCT2/data/chr10_res_obj.rds")
-# %%
-
-library(igraph)
-library(hictkR)
-library(MASS)
-library(dplyr)
-library(ggplot2)
-# %%
-path <- "/home/vipink/Documents/BHiCeCT2/data/HCT116/4DNFIP8RKGDG.mcool"
-current_MresFile <- hictkR::MultiResFile(path)
-res_obj <- readRDS("~/Documents/BHiCeCT2/data/chr10_res_obj.rds")
-summary_tbl <- res_obj$nodes
-summary_tbl <- summary_tbl|>mutate(parent_res_level = stringr::str_split(parent_id,'_')[[1]][2]) |> mutate(parent_res_level = as.integer(stringr::str_sub(parent_res_level,2,-1)))
-# %%
-summary_tbl |>
-  ggplot(aes(perf,col=type))+
-  geom_density()
-# %%
-summary_tbl |>
-  ggplot(aes(depth,size))+
-  geom_point()+
-  scale_y_log10()
-
-# %%
-
-summary_tbl |>
-  ggplot(aes(depth,res_level))+
-  geom_point()+
-  scale_y_log10()
-
-# %%
-
-summary_tbl |>
-  mutate(lbin = log10(size))|>
-  ggplot(aes(lbin,perf))+
-  geom_point()+
-  scale_y_log10()
-# %%
-# Calculate stats from your bootstrap 'null_scores'
-plot_node_density_boot <- function(node_id, summary_tbl) {
-# 1. Define range up to 1.0 only
-  x_range <- seq(0, 1, length.out = 200)
-  node <- summary_tbl |> filter(id == node_id)
-  # 2. Calculate standard density for the valid range
-  density_values <- (1/node$null_sd) * dt((x_range - node$null_mu)/node$null_sd, df = node$df)
-  
-  # 3. Calculate the "Accumulated Tail" (Area from 1 to Infinity)
-  # We use pt() with lower.tail = FALSE to get the probability mass > 1
-  t_stat_at_1 <- (1 - node$null_mu) / node$null_sd
-  accumulated_mass <- pt(t_stat_at_1, df = node$df, lower.tail = FALSE)
-  plt_df <- tibble::tibble(score = x_range, dens = density_values)
-  gg <- plt_df |>
-    ggplot2::ggplot(ggplot2::aes(score, dens)) +
-    ggplot2::geom_line() +
-    # Add a visual "spike" at 1.0 to show the accumulated mass
-    ggplot2::geom_segment(ggplot2::aes(x = 1, xend = 1, y = 0, yend = max(dens)),
-                          linetype = "dotted", color = "blue") +
-    ggplot2::geom_point(ggplot2::aes(x = 1, y = max(dens)), color = "blue") +
-    # Mark the observed score (capped at 1 for the intercept)
-    ggplot2::geom_vline(xintercept = min(node$obs, 1), color = "red", linewidth = 1) +
-    ggplot2::labs(
-      title = paste("Censored Null Distribution: Node", node$id),
-      subtitle = paste("Probability of null greater than observed:", node$perf),
-      x = "Separability Score",
-      y = "Density"
-    ) +
-    ggplot2::xlim(0, 1.1) +
-    ggplot2::theme_minimal()
-  return(gg)
-}
-# %%
-find_genomic_runs <- function(ids, res_level) {
-  if (length(ids) == 0) return(NULL)
-  ids <- sort(unique(ids))
-  thresh <- res_level
-  # Find indices where the jump between positions exceeds the threshold
-  breaks <- c(0, which(diff(ids) > thresh), length(ids))
-  
-  purrr::map(1:(length(breaks) - 1), ~{
-    start_idx <- breaks[.x] + 1
-    end_idx   <- breaks[.x + 1]
-    # We define the rectangle from start of first bin to END of last bin
-    return(list(start = ids[start_idx], end = ids[end_idx] + res_level))
-  })
-}
-# %%
-get_cl_plot_rectangles <- function(x, current_MresFile) {
-  tmp_contiguous_blocks <- find_genomic_runs(unlist(x|>pull(ids)),rev(current_MresFile$resolutions)[x|>pull(res_level)])
-      # Generate all pairwise combinations of runs within this cluster
-
-  rectangle_set_df <- expand.grid(r1 = seq_along(tmp_contiguous_blocks), r2 = seq_along(tmp_contiguous_blocks)) %>%
-  purrr::pmap_dfr(function(r1, r2){
-  run_i <- tmp_contiguous_blocks[[r1]]
-          run_j <- tmp_contiguous_blocks[[r2]]
-          tibble(
-            xmin = run_i$start, xmax = run_i$end,
-            ymin = run_j$start, ymax = run_j$end,
-          )
-        })
-  return(rectangle_set_df |> mutate(depth = x |> pull(depth)))
-}
-# %%
-all_rect_tbl <- purrr::map_dfr(seq_len(summary_tbl |> nrow()), function(idx) {
-        get_cl_plot_rectangles(summary_tbl |> dplyr::slice(idx),current_MresFile)
-      })
-
-# %%
-ggplot(all_rect_tbl |> arrange(depth)) +
-  geom_rect(aes(xmin = xmin, xmax = xmax, ymin = ymin, ymax = ymax, fill = depth),
-            color = NA,     # CRITICAL: No borders for 5.5k blocks
-            alpha = 0.75) +   # Transparency lets nested TADs show through
-  theme_minimal() +             # Removes background noise
-  scale_fill_viridis_c(direction = -1, option = "magma")+
-#  xlim(0,7e7)+
-#  ylim(0,7e7)+
-  coord_fixed()
-# %%
-# Utility function to convert a single cluster into an InteractionSet for integration with existing
-# ecosystem
-convert_to_InteractionSet <- function(node_id,summary_tbl,MresFile){
-
-
-
-
-}
-
-detect_overlap_with_feature <- function(GRange_of_interest,summary_tbl,MresFile){
-
-}
-
-# %%
-edge_tbl <- res_obj$edge_tbl
-# %%
-library(ggraph)
-tree_graph <- graph_from_data_frame(edge_tbl, directed = TRUE)
-leaf_indices <- which(degree(tree_graph, mode = "out") == 0)
-leaf_dist_mat <- distances(
-  graph = tree_graph,
-  v = names(leaf_indices),
-  to = names(leaf_indices),
-  mode = "all"
-)
-# %%
-ggraph(tree_graph, layout = "dendrogram", circular = TRUE) +
-  # Use very thin, transparent lines for massive trees
-  geom_edge_diagonal(alpha = 1, width = 0.1, color = "grey50") +
-  # Rasterize or shrink nodes
-  geom_node_point(aes(size = 0.01,alpha=0.01)) +
-  # If you want to see specific "important" labels
-  # geom_node_text(aes(label = name), repel = TRUE, size = 1) +
-  theme_graph() +
-  theme(legend.position = "none")
-
-# %%
-long_df <- as.data.frame.table(leaf_dist_mat, responseName = "tree_distance")
