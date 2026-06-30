@@ -1,0 +1,171 @@
+Here is a beautifully structured, production-ready R Markdown vignette designed for your package documentation (`vignettes/BHiCeCT2-quickstart.Rmd`). It builds a cohesive, peer-reviewed story for an Application Note—taking the user smoothly from raw `.mcool` data extraction to multi-scale visualization and Bioconductor integration.
+
+---
+
+```markdown
+---
+title: "Multi-Scale Non-Contiguous Chromatin Partitioning with BHiCeCT2"
+author: "Vipin Kumar"
+date: "`r Sys.Date()`"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Multi-Scale Non-Contiguous Chromatin Partitioning with BHiCeCT2}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+        collapse = TRUE,
+        comment = "#>",
+        fig.width = 7,
+        fig.height = 5,
+        warning = FALSE,
+        message = FALSE
+)
+```
+
+## Introduction
+
+Traditional Topologically Associating Domain (TAD) callers treat chromatin architecture as a linear sequence of contiguous physical blocks. However, high-resolution Hi-C data (such as $1\text{ kb}$ maps) shows that chromatin folds into non-contiguous structural hubs and looping networks separated by un-interacting gaps.
+
+`BHiCeCT2` addresses this biology via a **recursive spectral bisection algorithm** governed by an **inverse resolution-shifting framework**. If a localized chromatin domain looks uniform (the bootstrapped separability metric fails to reject the null distribution), the algorithm automatically zooms into a higher resolution tier to uncover nested topological details. If a boundary is found, it accepts the bipartition and continues partitioning.
+
+This vignette demonstrates how to execute the core pipeline on an ultra-deep human HCT116 `.mcool` dataset, inspect diagnostic node statistics, generate publication-ready matrix overlays, and export clusters into the Bioconductor ecosystem.
+
+---
+
+## 1. Setup and Global Configurations
+
+We begin by loading `BHiCeCT2` along with its core genomic and graph infrastructure dependencies. We disable scientific notation to keep large base-pair coordinate annotations human-readable.
+
+```{r setup}
+library(BHiCeCT2)
+library(hictkR)
+library(dplyr)
+library(ggplot2)
+library(GenomicRanges)
+
+# Disable scientific notation for clean genomic positioning
+options(scipen = 9999)
+```
+
+---
+
+## 2. Multiscale Data Loading & Bisection Execution
+
+We establish a connection to our hierarchical multi-resolution `.mcool` file using `hictkR`. We target **Chromosome 20**, a highly active, gene-dense archetype famous for complex looping topologies. We set a permissive decision gate threshold of `0.5`, making our significance baseline exactly equivalent to comparing observed boundary splits against the average expected noise of the bootstrapped null distribution.
+
+```{r execution, eval = FALSE}
+# Connect to the multi-resolution file pointer
+mcool_path <- "/home/vipink/Documents/BHiCeCT2/data/HCT116/4DNFIP8RKGDG.mcool"
+current_MresFile <- hictkR::MultiResFile(mcool_path)
+
+# Execute the core recursive bisection pipeline
+res_obj <- waterfall_bhicect(
+        file = current_MresFile,
+        chrom = "chr20",
+        threshold = 0.5
+)
+
+# Persist output for downstream reporting consistency
+saveRDS(res_obj, file = "chr20_res_obj.rds")
+```
+
+```{r load_cache, include = FALSE}
+# Internal helper simulating vignette rendering from cached tracking files
+# res_obj <- readRDS("chr20_res_obj.rds")
+# summary_tbl <- res_obj$nodes
+```
+
+---
+
+## 3. Extracting and Reviewing the Tree Workspace
+
+The execution object contains structural metadata across all recursive bisection actions. We isolate the structured node execution summary table (`summary_tbl`), which tracks tree paths, active resolution index levels, empirical $p$-values (`perf`), and the raw list of genomic bin start coordinates (`ids`).
+
+```{r summary_inspect}
+# Load the pre-computed tree architecture
+res_obj <- readRDS("chr20_res_obj.rds")
+summary_tbl <- res_obj$nodes
+
+# Preview the multi-tier data structural layout
+head(summary_tbl |> dplyr::select(id, res_level, depth, perf, obs))
+```
+
+---
+
+## 4. Visualizing Hierarchical Cluster Overlays
+
+Using our package's native `plot_cluster_heatmap()` engine, we flatten the tree summaries into explicit multi-scale matrices. The function maps continuous fragments within each cluster relative to its resolution tier, packing them into clear geometrical footprints.
+
+Nested sub-TAD features show through via alpha transparency blending, cleanly exposing how our resolution-shifting loop breaks uniform domains into crisp micro-domains.
+
+```{r plot_heatmap, fig.align='center'}
+# Generate the dynamic matrix block visualization
+plot_cluster_heatmap(
+        summary_tbl = summary_tbl,
+        current_MresFile = current_MresFile
+) +
+        labs(title = "BHiCeCT2 Hierarchical Sub-TAD Map", subtitle = "Chromosome 20 Workspace")
+```
+
+---
+
+## 5. Statistical Diagnostics for Node Separability
+
+To evaluate if an accepted split is physically sound, `BHiCeCT2` evaluates the observed separability score against a Student-$t$ distribution fit to a bootstrapped null background.
+
+Because our separability score metric is bounded at $1.0$, our diagnostic function `plot_node_density_boot()` explicitly handles metric censoring. It captures leaking probability mass beyond the mathematical ceiling and renders it as a discrete **Dirac spike** right at $1.0$.
+
+```{r plot_diagnostic, fig.align='center'}
+# Select a prominent deep tree node to view validation diagnostics
+target_node <- "D4_R5_29_30000000_44000000"
+
+plot_node_density_boot(
+        node_id = target_node,
+        summary_tbl = summary_tbl,
+        fill_tail = TRUE
+)
+```
+
+---
+
+## 6. Bioconductor Ecosystem Integration via `GRangesList`
+
+To seamlessly connect our non-contiguous structural networks to downstream genomic workflows (such as intersecting with CTCF ChIP-seq peaks or checking enrichment profiles via `diffHic`), we parse the summary data frame into a structured `GRangesList` object.
+
+The `as_granges_list()` converter automatically determines the appropriate scale-aware break margins based on each node's active resolution footprint.
+
+```{r export_ranges}
+# Convert non-contiguous cluster coordinate lists to a Bioconductor GRangesList
+cluster_GRanges <- as_granges_list(
+        summary_tbl = summary_tbl,
+        current_MresFile = current_MresFile,
+        seqname = "chr20"
+)
+
+# Inspect the structured S4 Bioconductor output
+cluster_GRanges
+```
+
+We can now cleanly calculate the exact multi-fragment genomic footprint for any specific non-contiguous cluster hub:
+
+```{r downstream_example}
+# Quantify the total base-pair footprint of the target cluster hub across gaps
+sum(GenomicRanges::width(cluster_GRanges[[target_node]]))
+```
+
+---
+
+## Session Information
+
+For transparency and reproducibility reporting standards:
+
+```{r session_info}
+sessionInfo()
+```
+
+```
+
+```

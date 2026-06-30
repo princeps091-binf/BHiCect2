@@ -679,7 +679,7 @@ node_to_row <- function(node) {
 #' mres <- list(path = "data.mcool", resolutions = c(1000, 5000, 10000))
 #' results <- waterfall_bhicet(mres, chrom = "chr19", threshold = 0.05)
 #' }
-waterfall_bhicet <- function(MresFile,chrom,threshold=0.5){
+waterfall_bhicect <- function(MresFile,chrom,threshold=0.5){
 
   f <- hictkR::File(MresFile$path, resolution = rev(MresFile$resolutions)[1])
   init_ids <- f$bins|>dplyr::filter(chrom ==chrom)|>dplyr::pull(start)
@@ -692,4 +692,90 @@ waterfall_bhicet <- function(MresFile,chrom,threshold=0.5){
       nodes = cluster_tibble,
       edges = spec_res
     ))
+}
+
+#' Convert Cluster Summary Table to a Grouped GRangesList
+#'
+#' Takes a cluster summary table containing nested bin IDs and maps them into 
+#' a structured \code{GenomicRanges::GRangesList} object, grouping non-contiguous 
+#' interval chunks together under their unique parent cluster node IDs.
+#'
+#' @param summary_tbl A data.frame or tibble. Must contain the columns: 
+#'   \code{id} (character cluster path), \code{ids} (list column of numeric bin starts), 
+#'   \code{res_level} (integer index), and \code{depth} (integer).
+#' @param current_MresFile A list or object tracking the resolution vector 
+#'   (e.g., \code{current_MresFile$resolutions}).
+#' @param seqname Character. The chromosome name (e.g., "chr20").
+#'
+#' @return A \code{GenomicRanges::GRangesList} object grouped by unique cluster node IDs.
+#' @importFrom GenomicRanges GRanges split
+#' @importFrom IRanges IRanges
+#' @importFrom purrr map_dfr
+#' @importFrom dplyr filter mutate slice
+#' @export
+as_granges_list <- function(summary_tbl, current_MresFile, seqname = "chrUnknown") {
+  
+  # --- Step 1: Validate Required Package Extensions ---
+  if (!requireNamespace("GenomicRanges", quietly = TRUE)) {
+    stop("The 'GenomicRanges' package is required. Please install it from Bioconductor.")
+  }
+  
+  # Map resolution indexes back to actual base-pair widths safely
+  res_vec <- rev(current_MresFile$resolutions)
+  
+  # --- Step 2: Flatten rows into explicit contiguous interval chunks ---
+  flat_intervals_df <- purrr::map_dfr(seq_len(nrow(summary_tbl)), function(idx) {
+    row_data <- summary_tbl |> dplyr::slice(idx)
+    
+    node_id     <- row_data$id
+    bin_starts  <- unlist(row_data$ids)
+    res_index   <- row_data$res_level
+    node_depth  <- row_data$depth
+    
+    if (length(bin_starts) == 0) return(NULL)
+    
+    # Extract the correct active bin width for this specific node
+    bin_size <- res_vec[res_index]
+    
+    # Sort bins sequentially to find structural gaps
+    bin_starts <- sort(unique(bin_starts))
+    
+    # Find break points where gaps between sequential bins exceed the current resolution tier
+    breaks <- c(0, which(diff(bin_starts) > bin_size), length(bin_starts))
+    
+    # Map each isolated contiguous chunk out as a distinct row entry
+    purrr::map_dfr(1:(length(breaks) - 1), function(i) {
+      sub_run <- bin_starts[(breaks[i] + 1):breaks[i+1]]
+      
+      dplyr::tibble(
+        chr = seqname,
+        start = min(sub_run),
+        # Explicitly extend the last bin out to encapsulate its full coordinate length
+        end = max(sub_run) + bin_size - 1,
+        node_id = node_id,
+        depth = node_depth,
+        resolution_bp = bin_size
+      )
+    })
+  })
+  
+  if (nrow(flat_intervals_df) == 0) {
+    stop("No valid genomic coordinates could be extracted from the summary table.")
+  }
+  
+  # --- Step 3: Construct Master S4 GRanges Object ---
+  master_gr <- GenomicRanges::GRanges(
+    seqnames = flat_intervals_df$chr,
+    ranges   = IRanges::IRanges(start = flat_intervals_df$start, end = flat_intervals_df$end),
+    # Embed tracking features directly inside meta-columns
+    node_id       = flat_intervals_df$node_id,
+    depth         = flat_intervals_df$depth,
+    resolution_bp = flat_intervals_df$resolution_bp
+  )
+  
+  # --- Step 4: Splicing & Grouping into a GRangesList ---
+  # Groups disjoint spatial intervals cleanly under their identical cluster assignment factor
+  grouped_grl <- GenomicRanges::split(master_gr, f = master_gr$node_id)
+  
+  return(grouped_grl)
 }
