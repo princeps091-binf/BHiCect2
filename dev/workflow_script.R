@@ -15,6 +15,8 @@ library(hictkR)
 library(MASS)
 library(dplyr)
 library(ggplot2)
+library(future)
+library(furrr)
 # %%
 path <- "/home/vipink/Documents/BHiCeCT2/data/HCT116/4DNFIP8RKGDG.mcool"
 current_MresFile <- hictkR::MultiResFile(path)
@@ -23,11 +25,20 @@ res_obj <- readRDS("~/Documents/BHiCeCT2/data/chr20_res_obj.rds")
 summary_tbl <- res_obj$nodes
 
 # %%
+# 1. Set up the background parallel workers (e.g., using 4 cores)
+plan(multisession, workers = 4)
 
-plot_cluster_heatmap(summary_tbl, current_MresFile)
+# 2. Run the function (It will instantly execute in parallel)
+global_geometry <- compute_cluster_rectangles(summary_tbl, current_MresFile)
+
+# 3. Explicitly close the background connections when done to free up RAM
+plan(sequential)
 
 # %%
 
+plot_cluster_heatmap(global_geometry)
+
+# %%
 plot_node_density_boot("D4_R5_29_30000000_44000000", summary_tbl)
 
 # %%
