@@ -28,6 +28,8 @@ Imports:
     readr,
     tidyr,
     viridisLite
+Remotes:
+    paulsengroup/hictkR
 Suggests:
     caret,
     spelling,
