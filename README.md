@@ -24,17 +24,39 @@ The expected input data to BHiCect2 is a list of dataframes containing the HiC d
 
 ```r
 library(BHiCect2)
-## basic example using chromosome 22 data from human GM12878 data (Rao et al. 2014)
-data(chr_dat_l)
+library(future)
+library(furrr)
 
-# manual entry for resolutions
-res_set<-c('1Mb','500kb','100kb','50kb','10kb','5kb')
-res_num<-c(1e6L,5e5L,1e5L,5e4L,1e4L,5e3L)
-names(res_num)<-res_set
+options(scipen = 9999)
+path <- "/home/vipink/Documents/BHiCeCT2/data/HCT116/4DNFIP8RKGDG.mcool"
+current_MresFile <- hictkR::MultiResFile(path)
+res_obj <- BHiCect(current_MresFile, "chr20", threshold = 0.5)
 
-BHiCect_results<-BHiCect(res_set,res_num,chr_dat_l,'smpl.cl',4)
-col_chr_dat_l <- make_mres_color_map(res_set,res_set,chr_dat_l)
-mres_col_map <- custom_color_map_fn(res_set,'Set1')
-cl_heat_dat_tbl <- produce_mres_heat_tbl("100kb_58_1649_37000000_42700000",BHiCect_results,'100kb',c('100kb','50kb','10kb','5kb'),res_num,col_chr_dat_l,4)
-base_heatmap(cl_heat_dat_tbl,mres_col_map,res_num,'chr22')
+saveRDS(res_obj, file = "~/Documents/BHiCeCT2/data/chr20_res_obj.rds")
+
+path <- "/home/vipink/Documents/BHiCeCT2/data/HCT116/4DNFIP8RKGDG.mcool"
+current_MresFile <- hictkR::MultiResFile(path)
+res_obj <- readRDS("~/Documents/BHiCeCT2/data/chr20_res_obj.rds")
+
+summary_tbl <- res_obj$nodes
+
+# 1. Set up the background parallel workers (e.g., using 4 cores)
+plan(multisession, workers = 4)
+
+# 2. Run the function (It will instantly execute in parallel)
+global_geometry <- compute_cluster_rectangles(summary_tbl, current_MresFile)
+
+# 3. Explicitly close the background connections when done to free up RAM
+plan(sequential)
+
+plot_cluster_heatmap(global_geometry)
+
+plot_node_density_boot("D4_R5_29_30000000_44000000", summary_tbl)
+
+
+plot_node_density_boot("D13_R13_4_56396000_56399000", summary_tbl)
+
+
+cluster_GRanges <- as_granges_list(summary_tbl, current_MresFile, "chr20")
+
 ```

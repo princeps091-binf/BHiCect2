@@ -5,7 +5,7 @@ devtools::load_all()
 options(scipen = 9999)
 path <- "/home/vipink/Documents/BHiCeCT2/data/HCT116/4DNFIP8RKGDG.mcool"
 current_MresFile <- hictkR::MultiResFile(path)
-res_obj <- waterfall_bhicect(current_MresFile, "chr20", threshold = 0.5)
+res_obj <- BHiCect(current_MresFile, "chr20", threshold = 0.5)
 # %%
 saveRDS(res_obj, file = "~/Documents/BHiCeCT2/data/chr20_res_obj.rds")
 # %%
