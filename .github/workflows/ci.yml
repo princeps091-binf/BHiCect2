@@ -75,12 +75,14 @@ jobs:
           r-version: ${{ matrix.r-version }}
           use-public-rspm: true
           Ncpus: ${{ env.NPROC }}
-      - name: Force Clang Compiler for hictkR compatibility
+      - name: Configure isolated compiler settings for hictkR
         run: |
-          echo "CC=clang" >> $GITHUB_ENV
-          echo "CXX=clang++" >> $GITHUB_ENV
-          echo "CFLAGS=-Wno-stringop-overflow -Wno-error" >> $GITHUB_ENV
-          echo "CXXFLAGS=-Wno-stringop-overflow -Wno-error" >> $GITHUB_ENV
+          mkdir -p ~/.R
+          echo "CC=clang" >> ~/.R/Makevars
+          echo "CXX=clang++" >> ~/.R/Makevars
+          echo "CFLAGS=-Wno-stringop-overflow" >> ~/.R/Makevars
+          echo "CXXFLAGS=-Wno-stringop-overflow" >> ~/.R/Makevars
+        shell: bash
       - name: Add requirements
         uses: r-lib/actions/setup-r-dependencies@v2
         with:
