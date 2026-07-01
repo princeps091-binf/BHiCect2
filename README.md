@@ -47,9 +47,9 @@ saveRDS(res_obj, file = "chr20_res_obj.rds")
 
 ```
 
-### 2. High-Performance Parallel Geometry Computation
+### 2. Heatmap visualisation of multi-resolution clustering
 
-`BHiCect2` uses asynchronous mapping to resolve domain rectangles. You can distribute this workload effortlessly using a `future` execution plan.
+`BHiCect2` clusters are best visulised as an interaction heatmap. You can distribute this workload effortlessly using a `future` execution plan.
 
 ```R
 library(future)
@@ -67,16 +67,19 @@ global_geometry <- compute_cluster_rectangles(summary_tbl, current_MresFile)
 # 3. Terminate background processes cleanly to liberate system RAM
 plan(sequential)
 
+# Plot global contact heatmap with identified clusters
+plot_cluster_heatmap(global_geometry)
+
+
 ```
+
+![BHiCect2 Cluster Heatmap](man/figures/heatmap_example.png)
 
 ### 3. Diagnostic Visualization & Density Profiling
 
 Evaluate the geometric properties of detected clusters and analyze localized bootstrap densities for micro-domains.
 
 ```R
-# Plot global contact heatmap overlaid with identified cluster rectangles
-plot_cluster_heatmap(global_geometry)
-
 # Bootstrap validation plots for specific cluster targets
 plot_node_density_boot("D4_R5_29_30000000_44000000", summary_tbl)
 plot_node_density_boot("D13_R13_4_56396000_56399000", summary_tbl)
