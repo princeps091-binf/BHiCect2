@@ -68,11 +68,15 @@ global_geometry <- compute_cluster_rectangles(summary_tbl, current_MresFile)
 plan(sequential)
 
 # Plot global contact heatmap with identified clusters
+
 plot_cluster_heatmap(global_geometry)
+
+plot_cluster_heatmap(global_geometry,xlim=c(3.5e7,4e7))
 
 
 ```
 
+![BHiCect2 Cluster Heatmap](man/figures/global_heatmap_example.png)
 ![BHiCect2 Cluster Heatmap](man/figures/heatmap_example.png)
 
 ### 3. Diagnostic Visualization & Density Profiling
