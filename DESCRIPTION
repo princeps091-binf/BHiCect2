@@ -13,11 +13,18 @@ Encoding: UTF-8
 Roxygen: list(markdown = TRUE)
 RoxygenNote: 7.3.3
 Imports:
+    cli,
+    data.tree,
     dplyr,
     furrr,
     future,
+    GenomicRanges,
+    ggplot2,
+    hictkR,
     igraph,
+    IRanges,
     magrittr,
+    MASS,
     Matrix,
     purrr,
     rlang,
@@ -35,9 +42,13 @@ Suggests:
     spelling,
     stringr,
     testthat (>= 3.0.0),
-    withr
+    withr,
+    knitr,
+    rmarkdown
 Language: en-US
 Config/testthat/edition: 3
 Depends: R (>= 4.0)
 LazyData: true
 LazyDataCompression: xz
+VignetteBuilder: 
+    knitr

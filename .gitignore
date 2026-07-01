@@ -11,3 +11,5 @@ data/**
 .httr-oauth
 .DS_Store
 scripts/
+/doc/
+/Meta/
