@@ -2,28 +2,27 @@
 % Please edit documentation in R/viz_utils.R
 \name{plot_cluster_heatmap}
 \alias{plot_cluster_heatmap}
-\title{Plot Cluster Rectangles on Hi-C Contact Map Workspace}
+\title{Plot Cluster Rectangles}
 \usage{
 plot_cluster_heatmap(
-  summary_tbl,
-  current_MresFile,
+  rect_tbl,
+  current_MresFile = NULL,
   xlim = NULL,
   hic_df = NULL,
   alpha = 0.75
 )
 }
 \arguments{
-\item{summary_tbl}{A tibble or data.frame containing the cluster summaries.
-Must have columns: \code{ids}, \code{res_level}, and \code{depth}.}
+\item{rect_tbl}{A data frame of calculated rectangle dimensions generated via
+\code{compute_cluster_rectangles()}. Alternatively, a \code{summary_tbl} can be
+passed alongside \code{current_MresFile} to compute boundaries on the fly.}
 
-\item{current_MresFile}{A list or object tracking the resolution vector
-(e.g., \code{current_MresFile$resolutions}).}
+\item{current_MresFile}{Optional list tracking the resolution vector. Only required if
+passing a raw summary table instead of a pre-calculated rectangle data frame.}
 
-\item{xlim}{Numeric vector of length 2. The genomic window to visualize.
-If \code{NULL}, automatically scales to the minimum and maximum coordinates in \code{summary_tbl}.}
+\item{xlim}{Numeric vector of length 2. The genomic window to visualize.}
 
-\item{hic_df}{Optional data.frame containing pre-filtered contact matrix data
-with columns \code{binA}, \code{binB}, and \code{count} for background plotting.}
+\item{hic_df}{Optional data.frame containing contact matrix coordinates for background plotting.}
 
 \item{alpha}{Numeric. Transparency value for cluster rectangles (default: 0.75).}
 }
@@ -32,6 +31,4 @@ A \code{ggplot2} object.
 }
 \description{
 Generates a ggplot2 visualization of hierarchical, non-contiguous cluster blocks.
-If an interaction data frame or matrix is supplied, it overlays the clusters
-directly on top of the interaction heatmap.
 }

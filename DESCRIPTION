@@ -14,6 +14,7 @@ Roxygen: list(markdown = TRUE)
 RoxygenNote: 7.3.3
 Imports:
     cli,
+    data.tree,
     dplyr,
     furrr,
     future,
@@ -28,7 +29,8 @@ Imports:
     purrr,
     rlang,
     RSpectra,
-    tibble
+    tibble,
+    tidyr
 Suggests:
     caret,
     spelling,

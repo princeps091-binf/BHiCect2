@@ -10,9 +10,9 @@ test_that("BHiCect", {
   res_num <- c(1e6L, 5e5L, 1e5L)
   names(res_num) <- res_set
 
-  BHiCect_results <- BHiCect(res_set, res_num, chr_dat_l,'smpl.cl', 4)
+  BHiCect_results <- legacy_BHiCect(res_set, res_num, chr_dat_l, "smpl.cl", 4)
 
   # TODO implement some basic validation on the produced output
-  cl_res_count <- table(purrr::map_chr(strsplit(names(BHiCect_results$cl_member),'_'),function(x) x[1]))
-  expect_true(cl_res_count['1Mb'] < cl_res_count['100kb'])
+  cl_res_count <- table(purrr::map_chr(strsplit(names(BHiCect_results$cl_member), "_"), function(x) x[1]))
+  expect_true(cl_res_count["1Mb"] < cl_res_count["100kb"])
 })

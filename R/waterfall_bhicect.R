@@ -180,7 +180,6 @@ ss <- function(x) {
 #'
 #' @importFrom dplyr mutate slice_max pull
 #' @importFrom purrr map_dbl
-#' @importFrom stats Re
 #' @export
 #'
 #' @examples
@@ -463,7 +462,7 @@ get_interaction_matrix <- function(chrom,ids,res_level, MresFile) {
 #' @export
 #'
 #' @importFrom dplyr mutate group_by summarise pull
-#' @importFrom stats mean sd pt
+#' @importFrom stats sd pt
 #' @keywords internal
 recursive_spectral <- function(MresFile, chrom, ids, res_level = 1, depth = 1, parent_id = NA, threshold,node_registry,  verbose = TRUE) {
   # --- 1. Initialization and ID Generation ---
@@ -621,7 +620,7 @@ recursive_spectral <- function(MresFile, chrom, ids, res_level = 1, depth = 1, p
 #' @examples
 #' \dontrun{
 #' node <- list(id = "D1_R1", ids = c(1, 2, 3), depth = 1)
-#' node_to_row(node)
+#' node_to_row(node)}
 node_to_row <- function(node) {
   # 1. Capture the underlying list data
   # 2. Capture the metadata attributes
@@ -679,7 +678,7 @@ node_to_row <- function(node) {
 #' mres <- list(path = "data.mcool", resolutions = c(1000, 5000, 10000))
 #' results <- waterfall_bhicet(mres, chrom = "chr19", threshold = 0.05)
 #' }
-waterfall_bhicect <- function(MresFile,chrom,threshold=0.5){
+BHiCect <- function(MresFile,chrom,threshold=0.5){
 
   f <- hictkR::File(MresFile$path, resolution = rev(MresFile$resolutions)[1])
   init_ids <- f$bins|>dplyr::filter(chrom ==chrom)|>dplyr::pull(start)

@@ -25,3 +25,8 @@ This function is essential for collapsing the hierarchical \code{node_registry}
 (an environment) into a master registry table. It uses \code{unclass} to
 strip S3 methods while preserving the underlying data.
 }
+\examples{
+\dontrun{
+node <- list(id = "D1_R1", ids = c(1, 2, 3), depth = 1)
+node_to_row(node)}
+}

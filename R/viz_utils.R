@@ -1,33 +1,22 @@
-#' Plot Cluster Rectangles on Hi-C Contact Map Workspace
+#' Compute Cluster Polygons/Rectangles from Tree Summary via Parallel Processing
 #'
-#' Generates a ggplot2 visualization of hierarchical, non-contiguous cluster blocks.
-#' If an interaction data frame or matrix is supplied, it overlays the clusters
-#' directly on top of the interaction heatmap.
+#' Evaluates non-contiguous genomic runs from hierarchical partitioning clusters
+#' and flattens them into absolute spatial 2D grid coordinates in parallel using furrr.
 #'
 #' @param summary_tbl A tibble or data.frame containing the cluster summaries.
 #'   Must have columns: \code{ids}, \code{res_level}, and \code{depth}.
 #' @param current_MresFile A list or object tracking the resolution vector
 #'   (e.g., \code{current_MresFile$resolutions}).
-#' @param xlim Numeric vector of length 2. The genomic window to visualize.
-#'   If \code{NULL}, automatically scales to the minimum and maximum coordinates in \code{summary_tbl}.
-#' @param hic_df Optional data.frame containing pre-filtered contact matrix data
-#'   with columns \code{binA}, \code{binB}, and \code{count} for background plotting.
-#' @param alpha Numeric. Transparency value for cluster rectangles (default: 0.75).
 #'
-#' @return A \code{ggplot2} object.
-#' @import ggplot2
+#' @return A tidy \code{tibble} containing columns \code{xmin}, \code{xmax}, 
+#'   \code{ymin}, \code{ymax}, and \code{depth}.
 #' @import dplyr
-#' @importFrom purrr map map_dfr pmap_dfr
+#' @importFrom purrr map pmap_dfr
+#' @importFrom furrr future_map_dfr
 #' @export
-plot_cluster_heatmap <- function(summary_tbl,
-                                 current_MresFile,
-                                 xlim = NULL,
-                                 hic_df = NULL,
-                                 alpha = 0.75) {
-        # ==========================================================================
-        # 1. INTERNAL HELPERS (Hidden from user namespace)
-        # ==========================================================================
-
+compute_cluster_rectangles <- function(summary_tbl, current_MresFile) {
+        extracted_resolutions <- rev(current_MresFile$resolutions)
+        # Internal helper to isolate contiguous blocks along a chromosome arm
         find_genomic_runs <- function(ids, res_level) {
                 if (length(ids) == 0) {
                         return(NULL)
@@ -42,9 +31,8 @@ plot_cluster_heatmap <- function(summary_tbl,
                 })
         }
 
-        get_cl_plot_rectangles <- function(x, mres) {
-                # Dynamically extract resolution level mapping safely
-                res_vec <- rev(mres$resolutions)
+        # Internal helper to construct pairs of combinations across blocks
+        get_cl_plot_rectangles <- function(x, res_vec) {
                 current_res <- res_vec[x |> dplyr::pull(res_level)]
 
                 tmp_contiguous_blocks <- find_genomic_runs(unlist(x |> dplyr::pull(ids)), current_res)
@@ -55,7 +43,7 @@ plot_cluster_heatmap <- function(summary_tbl,
                 rectangle_set_df <- expand.grid(
                         r1 = seq_along(tmp_contiguous_blocks),
                         r2 = seq_along(tmp_contiguous_blocks)
-                ) %>%
+                ) |>
                         purrr::pmap_dfr(function(r1, r2) {
                                 run_i <- tmp_contiguous_blocks[[r1]]
                                 run_j <- tmp_contiguous_blocks[[r2]]
@@ -69,67 +57,81 @@ plot_cluster_heatmap <- function(summary_tbl,
         }
 
         # ==========================================================================
-        # 2. DATA PROCESSING
+        # PARALLEL PROCESSING STEP via furrr
         # ==========================================================================
+        # We replace purrr::map_dfr with furrr::future_map_dfr.
+        # .options = furrr::furrr_options(seed = TRUE) ensures stability if there are internal seeds.
+        all_rect_tbl <- furrr::future_map_dfr(
+                seq_len(nrow(summary_tbl)), 
+                function(idx) {
+                        get_cl_plot_rectangles(summary_tbl |> dplyr::slice(idx), extracted_resolutions)
+                },
+                .options = furrr::furrr_options(seed = TRUE)
+        ) |> 
+                dplyr::arrange(depth)
 
-        # Flatten tree summary table to explicit grid coordinates
-        all_rect_tbl <- purrr::map_dfr(seq_len(nrow(summary_tbl)), function(idx) {
-                get_cl_plot_rectangles(summary_tbl |> dplyr::slice(idx), current_MresFile)
-        }) |> dplyr::arrange(depth)
+        return(all_rect_tbl)
+}
 
-        # Dynamically determine viewport limits if not provided
-        if (is.null(xlim)) {
-                xlim <- c(min(all_rect_tbl$xmin), max(all_rect_tbl$xmax))
+#' Plot Cluster Rectangles
+#'
+#' Generates a ggplot2 visualization of hierarchical, non-contiguous cluster blocks.
+#'
+#' @param rect_tbl A data frame of calculated rectangle dimensions generated via 
+#'   \code{compute_cluster_rectangles()}. Alternatively, a \code{summary_tbl} can be 
+#'   passed alongside \code{current_MresFile} to compute boundaries on the fly.
+#' @param current_MresFile Optional list tracking the resolution vector. Only required if
+#'   passing a raw summary table instead of a pre-calculated rectangle data frame.
+#' @param xlim Numeric vector of length 2. The genomic window to visualize.
+#' @param hic_df Optional data.frame containing contact matrix coordinates for background plotting.
+#' @param alpha Numeric. Transparency value for cluster rectangles (default: 0.75).
+#'
+#' @return A \code{ggplot2} object.
+#' @import ggplot2
+#' @import dplyr
+#' @export
+plot_cluster_heatmap <- function(rect_tbl,
+                                 current_MresFile = NULL,
+                                 xlim = NULL,
+                                 hic_df = NULL,
+                                 alpha = 0.75) {
+        
+        # If user passed a raw summary table, fallback and compute it on the fly
+        if (!"xmin" %in% colnames(rect_tbl)) {
+                if (is.null(current_MresFile)) {
+                        stop("Must provide current_MresFile if rect_tbl is a raw summary table.")
+                }
+                rect_tbl <- compute_cluster_rectangles(rect_tbl, current_MresFile)
         }
-        ylim <- xlim # Maintain strict symmetry for Hi-C matrix diagonals
 
-        # Filter rectangles to visible viewport to speed up rendering
-        visible_rects <- all_rect_tbl |>
-                dplyr::filter(xmax >= xlim[1] & xmin <= xlim[2] & ymax >= ylim[1] & ymin <= ylim[2])
+        # Setup standard bounding viewports if missing
+        if (is.null(xlim)) {
+                xlim <- c(min(rect_tbl$xmin, na.rm = TRUE), max(rect_tbl$xmax, na.rm = TRUE))
+        }
 
-        # ==========================================================================
-        # 3. PLOT CONSTRUCTION
-        # ==========================================================================
+        # Filter geometry instantly to minimize canvas compilation overhead
+        visible_rects <- rect_tbl |>
+                dplyr::filter(xmax >= xlim[1] & xmin <= xlim[2])
 
+        # Initialize Base Canvas Layout
         p <- ggplot2::ggplot()
 
-        # Layer A: Background Hi-C Heatmap (If supplied by user)
-        if (!is.null(hic_df)) {
-                # Ensure background matrix columns exist
-                if (all(c("binA", "binB", "count") %in% colnames(hic_df))) {
-                        p <- p + ggplot2::geom_raster(
-                                data = hic_df,
-                                ggplot2::aes(x = binA, y = binB, fill = count),
-                                show.legend = TRUE
-                        ) +
-                                # Adjust scale dynamically so it doesn't conflict with cluster depth fill
-                                ggplot2::scale_fill_gradient(low = "white", high = "gray20", trans = "log10") +
-                                # Allow support for dual-fill scales via ggnewscale package if preferred later
-                                ggnewscale::new_scale_fill()
-                }
-        }
-
-        # Layer B: Non-Contiguous Cluster Overlay
+        # Layer the pre-calculated structural rectangles
         p <- p +
                 ggplot2::geom_rect(
                         data = visible_rects,
                         ggplot2::aes(xmin = xmin, xmax = xmax, ymin = ymin, ymax = ymax, fill = depth),
-                        color = NA,
-                        alpha = alpha
+                        color = NA, alpha = alpha
                 ) +
-                ggplot2::scale_fill_viridis_c(direction = -1, option = "magma", name = "Tree Depth") +
-                ggplot2::xlim(xlim[1], xlim[2]) +
-                ggplot2::ylim(ylim[1], ylim[2]) +
-                ggplot2::coord_fixed() +
-                ggplot2::theme_minimal() +
+                ggplot2::scale_fill_viridis_c(direction = -1, option = "magma", name = "Tree Depth") +ggplot2::coord_fixed(xlim = xlim, ylim = xlim, expand = FALSE) +
                 ggplot2::labs(
-                        x = "Genomic Coordinate (bp)",
-                        y = "Genomic Coordinate (bp)"
-                )
+                        x = "Genomic Position",
+                        y = "Genomic Position",
+                ) +
+                ggplot2::theme_minimal()
 
         return(p)
 }
-
 
 #' Plot Node Separability Against Bootstrapped Null Distribution
 #'

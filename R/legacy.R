@@ -21,7 +21,7 @@
 #' @return The square and symmetric Adjacency matrix from the input graph
 #' @export
 #'
-get_adj_mat_fn <- function(g_chr1) {
+legacy_get_adj_mat_fn <- function(g_chr1) {
   chr_mat <- igraph::as_adjacency_matrix(g_chr1, type = "both", attr = "weight")
   diag(chr_mat) <- 0
   if (any(Matrix::colSums(chr_mat) == 0)) {
@@ -42,7 +42,7 @@ get_adj_mat_fn <- function(g_chr1) {
 #' * Vector of the two smallest eigen-values
 #' @export
 #'
-lp_fn <- function(x) {
+legacy_lp_fn <- function(x) {
   Dinv <- Matrix::Diagonal(nrow(x), 1 / Matrix::rowSums(x))
 
   lp_chr1 <- Matrix::Diagonal(nrow(x), 1) - Dinv %*% x
@@ -71,7 +71,7 @@ lp_fn <- function(x) {
 #' @return sum of square error
 #' @export
 #'
-ss <- function(x) {
+legacy_ss <- function(x) {
   sum(scale(x, scale = FALSE)^2)
 }
 
@@ -84,12 +84,12 @@ ss <- function(x) {
 #' @return Tibble with the partition statistics and ensuing clusters
 #' @export
 #'
-simple_partition_tbl_fn <- function(lp_res, tmp_res) {
+legacy_simple_partition_tbl_fn <- function(lp_res, tmp_res) {
   smpl_thresh_tbl <- lp_res$vectors %>%
     dplyr::mutate(stat = purrr::map_dbl(fiedler, function(x) {
       cl_a <- fiedler[which(fiedler <= x)]
       cl_b <- fiedler[which(fiedler > x)]
-      return(ss(rep(c(mean(cl_a), mean(cl_b)), c(length(cl_a), length(cl_b)))) / ss(fiedler))
+      return(legacy_ss(rep(c(mean(cl_a), mean(cl_b)), c(length(cl_a), length(cl_b)))) / legacy_ss(fiedler))
     }))
   smpl_thresh <- smpl_thresh_tbl %>%
     dplyr::slice_max(stat) %>%
@@ -113,7 +113,7 @@ simple_partition_tbl_fn <- function(lp_res, tmp_res) {
 #' @return list where each element is the bin content of the produced partitions
 #' @export
 #'
-partition_fn <- function(reff_g, smpl_thresh_tbl, tmp_res, cl_var) {
+legacy_partition_fn <- function(reff_g, smpl_thresh_tbl, tmp_res, cl_var) {
   sub_g_list <- list()
   ncl <- as.numeric(unlist(smpl_thresh_tbl %>%
     dplyr::select(!!cl_var) %>%
@@ -153,7 +153,7 @@ partition_fn <- function(reff_g, smpl_thresh_tbl, tmp_res, cl_var) {
 #' @return Character with the best resolution at which to perform bi-partition
 #' @export
 #'
-select_best_res_fn <- function(i, tmp_chr_dat_l, chr1_tree_cl, res_num, tmp_res, tmp_res_set, min_res) {
+legacy_select_best_res_fn <- function(i, tmp_chr_dat_l, chr1_tree_cl, res_num, tmp_res, tmp_res_set, min_res) {
   if (tmp_res == min_res) {
     res_select <- 0
   } else {
@@ -218,7 +218,7 @@ select_best_res_fn <- function(i, tmp_chr_dat_l, chr1_tree_cl, res_num, tmp_res,
 #' * Partition statistic table for each cluster
 #' @export
 #'
-BHiCect <- function(res_set, res_num, chr_dat_l, cl_var = "smpl.cl", nworkers) {
+legacy_BHiCect <- function(res_set, res_num, chr_dat_l, cl_var = "smpl.cl", nworkers) {
   # initialisation
   # container to save cluster hierarchy as list of lists
   chr1_tree_df <- tibble::tibble(
@@ -243,12 +243,12 @@ BHiCect <- function(res_set, res_num, chr_dat_l, cl_var = "smpl.cl", nworkers) {
   g_chr1 <- igraph::graph_from_data_frame(chr_dat_l[[tmp_res]], directed = F)
   # eliminate self loop
   g_chr1 <- igraph::delete_edges(g_chr1, E(g_chr1)[which(igraph::which_loop(g_chr1))])
-  chr_mat <- get_adj_mat_fn(g_chr1)
+  chr_mat <- legacy_get_adj_mat_fn(g_chr1)
   # whole chromosome laplacian
   lpe_chr1 <- lp_fn(chr_mat)
   # spectral clusters
-  smpl_thresh_tbl <- simple_partition_tbl_fn(lpe_chr1, tmp_res)
-  res_chr1 <- partition_fn(g_chr1, smpl_thresh_tbl, tmp_res, cl_var)
+  smpl_thresh_tbl <- legacy_simple_partition_tbl_fn(lpe_chr1, tmp_res)
+  res_chr1 <- legacy_partition_fn(g_chr1, smpl_thresh_tbl, tmp_res, cl_var)
   print(res_chr1)
   # save cluster membership and expansion
   chr1_tree_cl <- list(chr1_tree_cl, res_chr1)
@@ -323,7 +323,7 @@ BHiCect <- function(res_set, res_num, chr_dat_l, cl_var = "smpl.cl", nworkers) {
 
       tmp_chr_dat_l <- cl_dat_l[[i]]
       # Update resolution for current cluster bi-partition
-      tmp_res <- select_best_res_fn(i, tmp_chr_dat_l, chr1_tree_cl, res_num, tmp_res, tmp_res_set, min_res)
+      tmp_res <- legacy_select_best_res_fn(i, tmp_chr_dat_l, chr1_tree_cl, res_num, tmp_res, tmp_res_set, min_res)
       tmp_res_set <- names(sort(res_num[which(res_num <= res_num[tmp_res])], decreasing = T))
       tmp_chr_dat <- tmp_chr_dat_l[[tmp_res]]
       # Skip clusters where the best resolution corresponds to a loop
@@ -335,22 +335,22 @@ BHiCect <- function(res_set, res_num, chr_dat_l, cl_var = "smpl.cl", nworkers) {
       # eliminate self loop
       sub_g1 <- igraph::delete_edges(sub_g1, E(sub_g1)[which(igraph::which_loop(sub_g1))])
       # create the corresponding adjacency matrix
-      sub_g1_adj <- get_adj_mat_fn(sub_g1)
+      sub_g1_adj <- legacy_get_adj_mat_fn(sub_g1)
       # Skip clusters where the best resolution corresponds to a loop after eliminating empty bins
       if (nrow(sub_g1_adj) < 1) {
         return(list(edge_tbl = NULL, cl_stat = NULL, cl_content = NULL))
       }
 
       # Find Fiedler vector
-      lpe_sub_g1 <- lp_fn(sub_g1_adj)
+      lpe_sub_g1 <- legacy_lp_fn(sub_g1_adj)
       # Skip clusters where the best resolution corresponds to a loop after eliminating empty bins
       if (nrow(lpe_sub_g1$vectors) < 3) {
         return(list(edge_tbl = NULL, cl_stat = NULL, cl_content = NULL))
       }
 
       # find actual sub-structures using kmeans on fiedler vector
-      subg_thresh_tbl <- simple_partition_tbl_fn(lpe_sub_g1, tmp_res)
-      res_chr1 <- partition_fn(sub_g1, subg_thresh_tbl, tmp_res, cl_var)
+      subg_thresh_tbl <- legacy_simple_partition_tbl_fn(lpe_sub_g1, tmp_res)
+      res_chr1 <- legacy_partition_fn(sub_g1, subg_thresh_tbl, tmp_res, cl_var)
       # Only consider future cluster partition if contain at least 2 bins
       ok_part_temp <- names(res_chr1)[which(unlist(lapply(res_chr1, length)) > 1)]
       tmp_tree_df <- do.call(dplyr::bind_rows, lapply(ok_part_temp, function(x) {
@@ -429,4 +429,167 @@ BHiCect <- function(res_set, res_num, chr_dat_l, cl_var = "smpl.cl", nworkers) {
   }
 
   return(list(cl_member = chr1_tree_cl, part_tree = chr1_tree_df, cl_stat = chr_cl_stat_l))
+}
+
+#' Produce summary table of cluster genealogy
+#'
+#' @param chr_spec_res BHiCect result object
+#' @param tmp_cl Target cluster name
+#' @importFrom magrittr %>%
+#' @return Table summarising the nested clusters within the target cluster
+#' @export
+#'
+produce_bpt_cl_lvl_tbl<-function(chr_spec_res,tmp_cl){
+  message("Produce tree representation for target cluster")
+  chr_bpt<-data.tree::FromDataFrameNetwork(chr_spec_res$part_tree)
+  node_ancestor<-chr_bpt$Get(function(x){x$Get('name',traversal='ancestor')})
+  node_ancestor<-lapply(node_ancestor,'[',-1)
+  node_lvl<-sort(chr_bpt$Get('level'))[-c(1)]
+  # extract children for target cluster
+  bpt_cl_set<-c(tmp_cl,names(which(purrr::map_lgl(node_ancestor,function(x){
+    tmp_cl %in% x
+  }))))
+
+  cl_lvl_tbl<-tibble::tibble(node=bpt_cl_set,lvl=node_lvl[bpt_cl_set],bins=chr_spec_res$cl_member[bpt_cl_set]) %>%
+    dplyr::mutate(res=stringr::str_split_fixed(.data$node,"_",2)[,1])
+  return(cl_lvl_tbl)
+}
+
+#' Subset chromosome-wide HiC data to focus on target cluster
+#'
+#' @param tmp_cl_res_set Subset of resolutions observed in target cluster
+#' @param cl_lvl_tbl Summary table of target cluster genealogy
+#' @param chr_dat_l Chromosome-wide HiC data for target cluster
+#' @importFrom magrittr %>%
+#' @importFrom rlang .data
+#' @return List of HiC data with one element per resolution
+#' @export
+#'
+produce_bpt_cl_dat_l<-function(tmp_cl_res_set,cl_lvl_tbl,chr_dat_l){
+  message("Subsetting HiC data to target cluster")
+  cl_dat_l<-lapply(tmp_cl_res_set,function(x){
+    tmp_res_max<-cl_lvl_tbl %>%
+      dplyr::filter(.data$res==x)
+    bin_range<-range(as.integer(unique(unlist(tmp_res_max$bins))))
+    chr_dat_l[[x]]%>%
+      dplyr::filter(.data$X1 <= bin_range[2] & .data$X1 >= bin_range[1] & .data$X2 <= bin_range[2] & .data$X2 >= bin_range[1])
+  })
+  names(cl_dat_l)<-tmp_cl_res_set
+
+  return(cl_dat_l)
+}
+
+
+#' Extract HiC data for full target cluster genealogy
+#'
+#' @param cl_lvl_tbl Summary table of target cluster genealogy
+#' @param cl_dat_l Subset of HiC data for target cluster
+#' @param res_num Named vector collecting observed resolution for chromosome-wide HiC data
+#' @param tmp_cl_res_set Subset of HiC data resolution observed in target cluster
+#' @param nworkers Number of workers for parallel computation
+#' @importFrom future plan multisession sequential
+#' @importFrom rlang .data
+#' @importFrom magrittr %>%
+#' @return Tibble with one row per cluster and a column listing corresponding HiC data at matching resolution and interpolated high-resolution
+#' @export
+#'
+extract_bpt_cl_dat_fn<-function(cl_lvl_tbl,cl_dat_l,res_num,tmp_cl_res_set,nworkers){
+  message("Subsetting HiC data for ",nrow(cl_lvl_tbl)," children clusters")
+
+  plan(multisession,workers=nworkers)
+  cl_lvl_tbl<-cl_lvl_tbl %>%
+           dplyr::mutate(HiC=furrr::future_pmap(list(.data$res,.data$bins),function(res,bins){
+             tmp_dat<-cl_dat_l[[res]]%>%
+               dplyr::filter(.data$X1 %in% as.integer(bins) & .data$X2 %in% as.integer(bins))
+
+           }))
+  plan(sequential)
+
+  hi_res<-res_num[rev(tmp_cl_res_set)[1]]
+  message("Interpolating HiC to ", rev(tmp_cl_res_set)[1])
+  plan(multisession,workers=nworkers)
+
+  cl_lvl_tbl<-cl_lvl_tbl %>%
+    dplyr::mutate(HiC.hires=furrr::future_pmap(list(.data$res,.data$HiC),function(res,HiC){
+      if(res_num[res] != hi_res){
+        out_tbl<-purrr::map_dfr(1:nrow(HiC),.f = function(i){
+
+
+          r_bin<-lapply(HiC[i,c(1,2)],function(x){
+            tmp<-seq(x,x+res_num[res],by=hi_res)
+            return(tmp[-length(tmp)])
+          })
+          tmp_df<-tidyr::expand_grid(ego=r_bin$X1,alter=r_bin$X2)
+          tmp_df<-tmp_df%>%dplyr::mutate(raw=unlist(HiC[i,3]))
+          tmp_df<-tmp_df%>%dplyr::mutate(pow=unlist(HiC[i,4]))
+          tmp_df<-tmp_df%>%dplyr::mutate(res=res)
+          tmp_df<-tmp_df%>%dplyr::mutate(color=unlist(HiC[i,5]))
+          tmp_df<-tmp_df %>% dplyr::filter(.data$ego <= .data$alter)
+          return(tmp_df)
+        })
+        return(out_tbl)
+      } else{
+
+        return(HiC %>%
+          dplyr::rename(ego=.data$X1,alter=.data$X2,raw=.data$X3,pow=.data$weight) %>%
+          dplyr::mutate(res=res) %>%
+          dplyr::select(.data$ego,.data$alter,.data$raw,.data$pow,.data$res,.data$color))
+      }
+
+
+    }))
+  plan(sequential)
+
+  return(cl_lvl_tbl)
+}
+
+#' Produce edgelist for heatmap visualisation based on BPT segmentation
+#'
+#' @param cl_lvl_tbl Summary table for target cluster genealogy
+#'
+#' @return Edgelist with colormap value for correponding resolutions
+#' @export
+#'
+produce_bpt_color_tbl<-function(cl_lvl_tbl){
+  lvl_seq<-sort(unique(cl_lvl_tbl$lvl),decreasing = T)
+
+  tmp_lvl_dat<-cl_lvl_tbl %>%
+    dplyr::filter(.data$lvl==lvl_seq[1])
+  tmp_seed<-do.call(dplyr::bind_rows,tmp_lvl_dat$HiC.hires)
+
+  message("Joining levels from ",min(lvl_seq)," to ",max(lvl_seq))
+  for(i in lvl_seq[-1]){
+    tmp_up_lvl_dat_tbl<-cl_lvl_tbl %>%
+      dplyr::filter(.data$lvl==i)
+    tmp_up_lvl_dat<-do.call(dplyr::bind_rows,tmp_up_lvl_dat_tbl$HiC.hires)
+
+    tmp_seed<- tmp_seed%>%
+      dplyr::select(.data$ego,.data$alter,.data$color) %>%
+      dplyr::full_join(tmp_up_lvl_dat %>%
+                  dplyr::select(.data$ego,.data$alter,.data$color) %>%
+                  dplyr::rename(color.b=.data$color)) %>%
+      dplyr::mutate(color=ifelse(is.na(.data$color),.data$color.b,.data$color)) %>%
+      dplyr::select(-c(.data$color.b))
+  }
+  return(tmp_seed)
+}
+
+#' Wrapper function to produce edgelist for heatmap visualisation with BPT segmentation
+#'
+#' @param tmp_cl Target cluster
+#' @param chr_spec_res BHiCect result object
+#' @param tmp_cl_res_set Named vector for HiC resolution observed within target cluster
+#' @param res_num Named vector collecting observed resolution for chromosome-wide HiC data
+#' @param chr_dat_l Chromosome-wide HiC data for target cluster
+#' @param nworkers Number of workers for parallel computation
+#'
+#' @return 3-column edge-list tibble with edge-weight corresponding to color-map values
+#' @export
+#'
+produce_bpt_heat_tbl<-function(tmp_cl,chr_spec_res,tmp_cl_res_set,res_num,chr_dat_l,nworkers){
+  cl_lvl_tbl<-produce_bpt_cl_lvl_tbl(chr_spec_res,tmp_cl)
+  cl_dat_l<-produce_bpt_cl_dat_l(tmp_cl_res_set,cl_lvl_tbl,chr_dat_l)
+  cl_lvl_tbl<-extract_bpt_cl_dat_fn(cl_lvl_tbl,cl_dat_l,res_num,tmp_cl_res_set,nworkers)
+  cl_col_dat<-produce_bpt_color_tbl(cl_lvl_tbl)
+  return(cl_col_dat)
 }
