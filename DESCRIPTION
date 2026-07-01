@@ -30,7 +30,13 @@ Imports:
     rlang,
     RSpectra,
     tibble,
-    tidyr
+    RColorBrewer,
+    data.tree,
+    readr,
+    tidyr,
+    viridisLite
+Remotes:
+    paulsengroup/hictkR
 Suggests:
     caret,
     spelling,
