@@ -86,6 +86,9 @@ plot_node_density_boot("D13_R13_4_56396000_56399000", summary_tbl)
 
 ```
 
+![BHiCect2 Cluster Heatmap](man/figures/good_cluster_example.png)
+
+![BHiCect2 Cluster Heatmap](man/figures/poor_cluster_example.png)
 ### 4. Downstream Integration (Bioconductor Ecosystem)
 
 Easily transition your clustering results into standard genomic ranges for multi-omics integration.
