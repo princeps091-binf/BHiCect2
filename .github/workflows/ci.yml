@@ -79,6 +79,8 @@ jobs:
         run: |
           echo "CC=clang" >> $GITHUB_ENV
           echo "CXX=clang++" >> $GITHUB_ENV
+          echo "CFLAGS=-Wno-stringop-overflow -Wno-error" >> $GITHUB_ENV
+          echo "CXXFLAGS=-Wno-stringop-overflow -Wno-error" >> $GITHUB_ENV
       - name: Add requirements
         uses: r-lib/actions/setup-r-dependencies@v2
         with:
