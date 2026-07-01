@@ -164,18 +164,65 @@ plot_node_density_boot <- function(node_id, summary_tbl, fill_tail = TRUE) {
         }
 
         # ==========================================================================
-        # 2. MATHEMATICAL MODELING (Censored Range)
+        # 2. MATHEMATICAL MODELING (Conditional Framework Selection)
         # ==========================================================================
-        x_range <- seq(0, 1, length.out = 200)
+        x_bar <- node$null_mu
+        v     <- (node$null_sd)^2
+        
+        # Test if Method of Moments is mathematically valid for a Beta distribution
+        use_beta <- v < (x_bar * (1 - x_bar))
 
-        # Standard scale transformation for Student-t density calculation
-        density_values <- (1 / node$null_sd) * stats::dt((x_range - node$null_mu) / node$null_sd, df = node$df)
+        if (use_beta) {
+                # ------------------------------------------------------------------
+                # PRIMARY PATH: Beta Distribution (Bounded)
+                # ------------------------------------------------------------------
+                model_type <- "Beta (Method of Moments)"
+                
+                # Analytical derivation of Alpha and Beta parameters
+                moment_term <- (x_bar * (1 - x_bar) / v) - 1
+                alpha_est   <- x_bar * moment_term
+                beta_est    <- (1 - x_bar) * moment_term
 
-        # Calculate the "Accumulated Tail" mass (Area from 1 to Infinity)
-        t_stat_at_1 <- (1 - node$null_mu) / node$null_sd
-        accumulated_mass <- stats::pt(t_stat_at_1, df = node$df, lower.tail = FALSE)
+                # Generate domain (avoiding absolute 0/1 to protect infinite limits)
+                x_range <- seq(1e-4, 1 - 1e-4, length.out = 200)
+                density_values <- stats::dbeta(x_range, shape1 = alpha_est, shape2 = beta_est)
 
-        # Build plotting layout
+                # Upper-tail mass accumulation check (Score >= 0.95)
+                accumulated_mass <- stats::pbeta(0.95, shape1 = alpha_est, shape2 = beta_est, lower.tail = FALSE)
+                
+                # Plotting annotations specific to Beta
+                meta_label <- paste0(
+                        "Beta Parameters:\n",
+                        "\u03b1 = ", round(alpha_est, 2), "\n",
+                        "\u03b2 = ", round(beta_est, 2), "\n\n",
+                        "Mass \u2265 0.95:\n", round(accumulated_mass, 4)
+                )
+                marker_x <- 0.95
+                
+        } else {
+                # ------------------------------------------------------------------
+                # FALLBACK PATH: Student-t Distribution (Unbounded/Heavy-Noise)
+                # ------------------------------------------------------------------
+                model_type <- "Student-t Fallback (High-Variance Exception)"
+                
+                # Unbounded domain mapping matching your original design layout
+                x_range <- seq(0, 1, length.out = 200)
+                density_values <- (1 / node$null_sd) * stats::dt((x_range - node$null_mu) / node$null_sd, df = node$df)
+
+                # Calculate the original "Accumulated Tail" mass (Area from 1.0 to Infinity)
+                t_stat_at_1 <- (1 - node$null_mu) / node$null_sd
+                accumulated_mass <- stats::pt(t_stat_at_1, df = node$df, lower.tail = FALSE)
+                
+                # Plotting annotations specific to Student-t
+                meta_label <- paste0(
+                        "Student-t Params:\n",
+                        "df = ", round(node$df, 1), "\n\n",
+                        "Mass \u2265 1.00:\n", round(accumulated_mass, 4)
+                )
+                marker_x <- 1.00
+        }
+
+        # Build combined plotting layout
         plt_df <- tibble::tibble(score = x_range, dens = density_values)
         max_dens <- max(density_values, na.rm = TRUE)
 
@@ -184,9 +231,9 @@ plot_node_density_boot <- function(node_id, summary_tbl, fill_tail = TRUE) {
         # ==========================================================================
         p <- ggplot2::ggplot(plt_df, ggplot2::aes(x = score, y = dens))
 
-        # Optional: Shade the p-value tail area for visual diagnostics
+        # Optional: Shade the empirical p-value tail area (Observed -> Maximum Range)
         if (fill_tail) {
-                obs_capped <- min(node$obs, 1)
+                obs_capped <- min(pmax(node$obs, min(x_range)), max(x_range))
                 tail_df <- plt_df |> dplyr::filter(score >= obs_capped)
 
                 if (nrow(tail_df) > 0) {
@@ -200,54 +247,50 @@ plot_node_density_boot <- function(node_id, summary_tbl, fill_tail = TRUE) {
         }
 
         p <- p +
-                # Continuous Null Distribution Curve
-                ggplot2::geom_line(color = "gray30", linewidth = 0.8) +
+                # Continuous Model Null Distribution Curve
+                ggplot2::geom_line(color = "royalblue", linewidth = 1.0) +
 
-                # Visual Spike at 1.0 showing the Censored Boundary Accumulation
+                # Dynamic Visual Segment indicating high-end threshold accumulation
                 ggplot2::geom_segment(
-                        ggplot2::aes(x = 1, xend = 1, y = 0, yend = max_dens),
-                        linetype = "dashed", color = "royalblue", linewidth = 0.6
+                        ggplot2::aes(x = marker_x, xend = marker_x, y = 0, yend = max_dens * 0.8),
+                        linetype = "dashed", color = "gray50", linewidth = 0.6
                 ) +
-                ggplot2::geom_point(
-                        ggplot2::aes(x = 1, y = max_dens),
-                        color = "royalblue", size = 2.5
-                ) +
-
-                # Label the accumulated probability value next to the spike
+                
+                # Render the dynamically prepared parameter string block
                 ggplot2::annotate(
                         "text",
-                        x = 1.02, y = max_dens * 0.9,
-                        label = paste0("Mass > 1.0:\n", round(accumulated_mass, 4)),
-                        color = "royalblue", hjust = 0, size = 3
+                        x = marker_x + 0.02, y = max_dens * 0.8,
+                        label = meta_label,
+                        color = "gray30", hjust = 0, size = 3
                 ) +
 
-                # Mark the Observed Score (Capped at 1.0 for viewport intercept alignment)
+                # Mark the Observed Score (Capped safely inside the selected framework viewport)
                 ggplot2::geom_vline(
-                        xintercept = min(node$obs, 1),
+                        xintercept = min(max(node$obs, 0), max(x_range)),
                         color = "firebrick", linewidth = 1, linetype = "solid"
                 ) +
 
                 # Annotate the observed value status
                 ggplot2::annotate(
                         "text",
-                        x = min(node$obs, 1) - 0.02, y = max_dens * 0.5,
+                        x = min(max(node$obs, 0), max(x_range)) - 0.02, y = max_dens * 0.5,
                         label = paste("Observed Score =", round(node$obs, 3)),
                         color = "firebrick", angle = 90, vjust = 0, fontface = "bold"
                 ) +
 
-                # Titles and Scales
+                # Titles and Scales adjusted dynamically based on active modeling choice
                 ggplot2::labs(
-                        title = paste("Censored Null Distribution Analysis"),
+                        title = paste("Null Distribution Analysis:", model_type),
                         subtitle = paste0("Node: ", node$id, "  |  Pr(Null >= Obs) = ", round(node$perf, 4)),
                         x = "Separability Score",
                         y = "Probability Density"
                 ) +
-                ggplot2::scale_x_continuous(limits = c(0, 1.15), expand = c(0, 0)) +
+                ggplot2::scale_x_continuous(limits = c(0, 1.2), breaks = seq(0, 1, 0.2), expand = c(0, 0)) +
                 ggplot2::scale_y_continuous(expand = ggplot2::expansion(mult = c(0, 0.1))) +
                 ggplot2::theme_minimal() +
                 ggplot2::theme(
-                        plot.title = ggplot2::element_text(face = "bold", size = 12),
-                        plot.subtitle = ggplot2::element_text(color = "gray40", size = 10),
+                        plot.title = ggplot2::element_text(face = "bold", size = 11),
+                        plot.subtitle = ggplot2::element_text(color = "gray40", size = 9),
                         panel.grid.minor = ggplot2::element_blank()
                 )
 

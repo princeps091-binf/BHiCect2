@@ -32,9 +32,11 @@ plot_node_density_boot("D4_R5_29_30000000_44000000", summary_tbl)
 
 # %%
 
-cluster_GRanges <- as_granges_list(summary_tbl, current_MresFile, "chr20")
+plot_node_density_boot("D13_R13_4_56396000_56399000", summary_tbl)
 
 # %%
+
+cluster_GRanges <- as_granges_list(summary_tbl, current_MresFile, "chr20")
 
 
 # %%

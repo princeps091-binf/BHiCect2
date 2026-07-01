@@ -18,3 +18,5 @@
 ^\.markdownlint\.yaml$
 ^\.pre-commit-config\.yaml$
 ^dev$
+^doc$
+^Meta$

@@ -27,9 +27,9 @@ knitr::opts_chunk$set(
 
 ## Introduction
 
-Traditional Topologically Associating Domain (TAD) callers treat chromatin architecture as a linear sequence of contiguous physical blocks. However, high-resolution Hi-C data (such as $1\text{ kb}$ maps) shows that chromatin folds into non-contiguous structural hubs and looping networks separated by un-interacting gaps.
+Traditional HiC analysis restrict themselves to view HiC data at a single resolution. However, high-resolution Hi-C data shows that chromatin folds into a variety of configurations and looping networks spanning multiple scales best captured at correspondingly numerous resolutions.
 
-`BHiCeCT2` addresses this biology via a **recursive spectral bisection algorithm** governed by an **inverse resolution-shifting framework**. If a localized chromatin domain looks uniform (the bootstrapped separability metric fails to reject the null distribution), the algorithm automatically zooms into a higher resolution tier to uncover nested topological details. If a boundary is found, it accepts the bipartition and continues partitioning.
+`BHiCeCT2` addresses this biology via a **recursive spectral bisection algorithm** governed by an **iterative resolution-optimising framework**. If a localized chromatin domain looks uniform, the algorithm automatically zooms into a higher resolution to uncover nested topological details. If a boundary is found, it accepts the bipartition and continues partitioning at the current resolution.
 
 This vignette demonstrates how to execute the core pipeline on an ultra-deep human HCT116 `.mcool` dataset, inspect diagnostic node statistics, generate publication-ready matrix overlays, and export clusters into the Bioconductor ecosystem.
 
@@ -40,7 +40,7 @@ This vignette demonstrates how to execute the core pipeline on an ultra-deep hum
 We begin by loading `BHiCeCT2` along with its core genomic and graph infrastructure dependencies. We disable scientific notation to keep large base-pair coordinate annotations human-readable.
 
 ```{r setup}
-library(BHiCeCT2)
+library(BHiCect2)
 library(hictkR)
 library(dplyr)
 library(ggplot2)
@@ -54,7 +54,7 @@ options(scipen = 9999)
 
 ## 2. Multiscale Data Loading & Bisection Execution
 
-We establish a connection to our hierarchical multi-resolution `.mcool` file using `hictkR`. We target **Chromosome 20**, a highly active, gene-dense archetype famous for complex looping topologies. We set a permissive decision gate threshold of `0.5`, making our significance baseline exactly equivalent to comparing observed boundary splits against the average expected noise of the bootstrapped null distribution.
+We establish a connection to our hierarchical multi-resolution `.mcool` file using `hictkR`. We target **Chromosome 20**, a highly active, gene-dense archetype famous for complex looping topologies. We set a permissive decision gate threshold of `0.5`, making our significance baseline exactly equivalent to comparing observed boundary splits against the median noise of the bootstrapped null distribution. In essence, this criteria adapts the gap statistics to the specific task of Hi-C clustering.
 
 ```{r execution, eval = FALSE}
 # Connect to the multi-resolution file pointer
@@ -69,7 +69,7 @@ res_obj <- waterfall_bhicect(
 )
 
 # Persist output for downstream reporting consistency
-saveRDS(res_obj, file = "chr20_res_obj.rds")
+saveRDS(res_obj, file = "./data/chr20_res_obj.rds")
 ```
 
 ```{r load_cache, include = FALSE}
@@ -82,13 +82,13 @@ saveRDS(res_obj, file = "chr20_res_obj.rds")
 
 ## 3. Extracting and Reviewing the Tree Workspace
 
-The execution object contains structural metadata across all recursive bisection actions. We isolate the structured node execution summary table (`summary_tbl`), which tracks tree paths, active resolution index levels, empirical $p$-values (`perf`), and the raw list of genomic bin start coordinates (`ids`).
+The result object contains the Nodes and edges of the clustering tree produced by BHiCect2 as two dedicated dataframes. We can focus on the Ndes or cluster summary table (`summary_tbl`), which includes tree depth, resolution level, empirical $p$-values (`perf`), and the raw list of genomic bin start coordinates (`ids`).
 
 ```{r summary_inspect}
 # Load the pre-computed tree architecture
-res_obj <- readRDS("chr20_res_obj.rds")
+data("res_obj", package = "BHiCect2")
+# Access the data frame from the loaded object
 summary_tbl <- res_obj$nodes
-
 # Preview the multi-tier data structural layout
 head(summary_tbl |> dplyr::select(id, res_level, depth, perf, obs))
 ```
@@ -97,17 +97,17 @@ head(summary_tbl |> dplyr::select(id, res_level, depth, perf, obs))
 
 ## 4. Visualizing Hierarchical Cluster Overlays
 
-Using our package's native `plot_cluster_heatmap()` engine, we flatten the tree summaries into explicit multi-scale matrices. The function maps continuous fragments within each cluster relative to its resolution tier, packing them into clear geometrical footprints.
+Using our package's native `plot_cluster_heatmap()` engine, we project the found clusters into explicit interaction matrices. The colormap of the heatmap reflects the tree depth of the considered cluster.
 
-Nested sub-TAD features show through via alpha transparency blending, cleanly exposing how our resolution-shifting loop breaks uniform domains into crisp micro-domains.
+Nested TAD-like features and loops show through via alpha transparency blending, cleanly exposing how our multi-resolution description captures a variety of nested interaction patterns.
 
-```{r plot_heatmap, fig.align='center'}
+```{r plot_heatmap, fig.align='center', eval=FALSE}
 # Generate the dynamic matrix block visualization
 plot_cluster_heatmap(
         summary_tbl = summary_tbl,
         current_MresFile = current_MresFile
 ) +
-        labs(title = "BHiCeCT2 Hierarchical Sub-TAD Map", subtitle = "Chromosome 20 Workspace")
+        labs(title = "BHiCeCT2 Hierarchical Sub-TAD Map", subtitle = "Chromosome 20")
 ```
 
 ---
@@ -137,7 +137,7 @@ To seamlessly connect our non-contiguous structural networks to downstream genom
 
 The `as_granges_list()` converter automatically determines the appropriate scale-aware break margins based on each node's active resolution footprint.
 
-```{r export_ranges}
+```{r export_ranges, eval = FALSE}
 # Convert non-contiguous cluster coordinate lists to a Bioconductor GRangesList
 cluster_GRanges <- as_granges_list(
         summary_tbl = summary_tbl,
@@ -151,7 +151,7 @@ cluster_GRanges
 
 We can now cleanly calculate the exact multi-fragment genomic footprint for any specific non-contiguous cluster hub:
 
-```{r downstream_example}
+```{r downstream_example, eval =FALSE}
 # Quantify the total base-pair footprint of the target cluster hub across gaps
 sum(GenomicRanges::width(cluster_GRanges[[target_node]]))
 ```
