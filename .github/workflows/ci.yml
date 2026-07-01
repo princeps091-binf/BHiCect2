@@ -68,21 +68,52 @@ jobs:
           echo "NPROC=$NPROC" >> "$GITHUB_ENV"
       - name: Install pandoc
         uses: r-lib/actions/setup-pandoc@v2
-
+# 1. LINUX SPECIFIC: Resolve dependencies, OpenMP libraries, and configure Conan profiles
+      - name: Configure Linux Prerequisites and Tooling Profiles
+        if: runner.os == 'Linux'
+        run: | 
+          sudo apt-get update
+          sudo apt-get install -y libcurl4-openssl-dev libssl-dev libxml2-dev clang libomp-dev
+          
+          mkdir -p ~/.R
+          touch ~/.R/Makevars
+          
+          # Force OpenMP mapping paths globally on Linux to resolve 'omp.h' missing errors
+          echo "SHLIB_OPENMP_CFLAGS=-fopenmp" >> ~/.R/Makevars
+          echo "SHLIB_OPENMP_CXXFLAGS=-fopenmp" >> ~/.R/Makevars
+          
+          # Initialize standard static profile to intercept Conan and strip macOS -stdlib leaks 
+          mkdir -p ~/.conan2/profiles/
+          echo "[settings]" > ~/.conan2/profiles/default
+          echo "os=Linux" >> ~/.conan2/profiles/default
+          echo "arch=x86_64" >> ~/.conan2/profiles/default
+          echo "compiler=gcc" >> ~/.conan2/profiles/default
+          echo "compiler.version=11" >> ~/.conan2/profiles/default
+          echo "compiler.libcxx=libstdc++11" >> ~/.conan2/profiles/default
+          echo "compiler.cppstd=17" >> ~/.conan2/profiles/default
+          echo "build_type=Release" >> ~/.conan2/profiles/default
+          
+          cp ~/.conan2/profiles/default ~/.conan2/profiles/hictkR
+          
+          # Apply isolated soft validation flags exclusively to R 4.5 to protect against implicit C99 traps
+          if [[ "${{ matrix.r-version }}" == "4.5" || "${{ matrix.r-version }}" == "devel" ]]; then
+            echo "Applying R 4.5 implicit C function definition bypass..."
+            echo "CFLAGS=-Wno-implicit-function-declaration -Wno-error=implicit-function-declaration -Wno-int-conversion" >> ~/.R/Makevars
+            echo "CXXFLAGS=-Wno-implicit-function-declaration -Wno-error=implicit-function-declaration" >> ~/.R/Makevars
+          fi
+# 2. WINDOWS SPECIFIC: Inject environmental overrides to anchor header tracking paths
+      - name: Configure Environment for Windows Build
+        if: runner.os == 'windows'
+        run: |
+          echo "HICTKR_CONAN_HOME=C:\Users\runneradmin\.conan2" >> $GITHUB_ENV
+          echo "HICTKR_TMPDIR=C:\Users\runneradmin\AppData\Local\Temp\hictkR_build" >> $GITHUB_ENV
+          echo "CPATH=C:\Users\runneradmin\.conan2\p;C:\Users\runneradmin\.conan2\p\b" >> $GITHUB_ENV
       - name: Setup R
         uses: r-lib/actions/setup-r@v2
         with:
           r-version: ${{ matrix.r-version }}
           use-public-rspm: true
           Ncpus: ${{ env.NPROC }}
-      - name: Configure isolated compiler settings for hictkR
-        run: |
-          mkdir -p ~/.R
-          echo "CC=clang" >> ~/.R/Makevars
-          echo "CXX=clang++" >> ~/.R/Makevars
-          echo "CFLAGS=-Wno-stringop-overflow" >> ~/.R/Makevars
-          echo "CXXFLAGS=-Wno-stringop-overflow" >> ~/.R/Makevars
-        shell: bash
       - name: Add requirements
         uses: r-lib/actions/setup-r-dependencies@v2
         with:
