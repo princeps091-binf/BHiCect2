@@ -8,55 +8,97 @@ The goal of BHiCect2 is to cluster HiC data as described in our [manuscript](). 
 Briefly, we decompose intra-chromosomal HiC data into nested clusters of chromosome regions across multiple resolutions
 starting from the complete chromosome all the way to DNA-loops at the maximum resolution provided.
 
-## Installation
 
-You can install the current version of BHiCect2 from [GitHub](https://github.com/) with:
+---
 
-```r
-# install.packages("devtools")
-devtools::install_github("princeps091-binf/BHiCect2")
+# `BHiCect2` — High-Resolution Chromatin Domain & Cluster Detection
+
+`BHiCect2` is an R package tailored for computational biologists and bioinformaticians looking to extract high-confidence structural features from Hi-C data. By interfacing natively with modern `.mcool` and `.hic` data formats via `hictkR`, `BHiCect2` handles multi-resolution tracking, cluster identification, and bootstrapping-based cluster significance at genomic scale.
+
+## Key Features
+
+* **Native Multi-Res Support:** Direct indexing of `.mcool` files via fast C++ backend interfaces (`hictkR`).
+* **Interoperable Data Layouts:** Seamless conversion of hierarchical clusters into Bioconductor-native `GRangesList` objects for downstream enrichment and overlap analysis.
+* **Heatmap visualisation** of the multi-resolution architecture uncovered by BHiCect
+---
+
+## Quick Start Guide
+
+### 1. Model Initialization & Domain Call
+
+Load your multi-resolution Hi-C data and execute the core `BHiCect` clustering algorithm over a target chromosome.
+
+```R
+library(BHiCect2)
+library(hictkR)
+
+# Prevent scientific notation on genomic coordinates
+options(scipen = 9999)
+
+# Load multi-resolution Hi-C data (.mcool format)
+mcool_path <- "path/to/your/dataset.mcool"
+current_MresFile <- hictkR::MultiResFile(mcool_path)
+
+# Execute tree-based clustering algorithm on target chromosome
+res_obj <- BHiCect(current_MresFile, chrom = "chr20", threshold = 0.5)
+
+# (Optional) Persist your computed result object
+saveRDS(res_obj, file = "chr20_res_obj.rds")
+
 ```
 
-## Example
+### 2. High-Performance Parallel Geometry Computation
 
-BHiCect2 offers a core function to cluster the input HiC data.
-The expected input data to BHiCect2 is a list of dataframes containing the HiC data in a three columns format for the various resolution provided by the user.
+`BHiCect2` uses asynchronous mapping to resolve domain rectangles. You can distribute this workload effortlessly using a `future` execution plan.
 
-```r
-library(BHiCect2)
+```R
 library(future)
 library(furrr)
 
-options(scipen = 9999)
-path <- "/home/vipink/Documents/BHiCeCT2/data/HCT116/4DNFIP8RKGDG.mcool"
-current_MresFile <- hictkR::MultiResFile(path)
-res_obj <- BHiCect(current_MresFile, "chr20", threshold = 0.5)
-
-saveRDS(res_obj, file = "~/Documents/BHiCeCT2/data/chr20_res_obj.rds")
-
-path <- "/home/vipink/Documents/BHiCeCT2/data/HCT116/4DNFIP8RKGDG.mcool"
-current_MresFile <- hictkR::MultiResFile(path)
-res_obj <- readRDS("~/Documents/BHiCeCT2/data/chr20_res_obj.rds")
-
+# Extract cluster table
 summary_tbl <- res_obj$nodes
 
-# 1. Set up the background parallel workers (e.g., using 4 cores)
+# 1. Spawn parallel workers based on your infrastructure (e.g., 4 cores)
 plan(multisession, workers = 4)
 
-# 2. Run the function (It will instantly execute in parallel)
+# 2. Compute spatial geometric coordinates in parallel
 global_geometry <- compute_cluster_rectangles(summary_tbl, current_MresFile)
 
-# 3. Explicitly close the background connections when done to free up RAM
+# 3. Terminate background processes cleanly to liberate system RAM
 plan(sequential)
 
+```
+
+### 3. Diagnostic Visualization & Density Profiling
+
+Evaluate the geometric properties of detected clusters and analyze localized bootstrap densities for micro-domains.
+
+```R
+# Plot global contact heatmap overlaid with identified cluster rectangles
 plot_cluster_heatmap(global_geometry)
 
+# Bootstrap validation plots for specific cluster targets
 plot_node_density_boot("D4_R5_29_30000000_44000000", summary_tbl)
-
-
 plot_node_density_boot("D13_R13_4_56396000_56399000", summary_tbl)
 
+```
 
-cluster_GRanges <- as_granges_list(summary_tbl, current_MresFile, "chr20")
+### 4. Downstream Integration (Bioconductor Ecosystem)
+
+Easily transition your clustering results into standard genomic ranges for multi-omics integration.
+
+```R
+# Coerce result object into a GenomicRanges::GRangesList object
+cluster_GRanges <- as_granges_list(summary_tbl, current_MresFile, chrom = "chr20")
+
+# Ready for downstream packages like GenomicRanges, plyranges, or ChiPseeker
+print(cluster_GRanges)
 
 ```
+
+---
+
+## Output Formats
+
+* **`res_obj$nodes`**: A clean, parsed hierarchical data frame indexing cluster IDs, parent-child nodes, and raw coordinate metrics.
+* **`cluster_GRanges`**: A standard `GRangesList` metadata framework containing distinct genomic coordinates mapping back to cluster groups.
