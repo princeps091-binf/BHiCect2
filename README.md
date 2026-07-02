@@ -13,7 +13,7 @@ starting from the complete chromosome all the way to DNA-loops at the maximum re
 
 # `BHiCect2` — High-Resolution Chromatin Domain & Cluster Detection
 
-`BHiCect2` is an R package tailored for computational biologists and bioinformaticians looking to extract high-confidence structural features from Hi-C data. By interfacing natively with modern `.mcool` and `.hic` data formats via `hictkR`, `BHiCect2` handles multi-resolution tracking, cluster identification, and bootstrapping-based cluster significance at genomic scale.
+`BHiCect2` is an R package tailored for computational biologists and bioinformaticians looking to extract high-confidence chromatin clusters from Hi-C data. By interfacing natively with modern `.mcool` and `.hic` data formats via `hictkR`, `BHiCect2` handles multi-resolution tracking, cluster identification, and bootstrapping-based cluster significance at genomic scale.
 
 ## Key Features
 
@@ -24,7 +24,7 @@ starting from the complete chromosome all the way to DNA-loops at the maximum re
 
 ## Quick Start Guide
 
-### 1. Model Initialization & Domain Call
+### 1. BHiCect clustering
 
 Load your multi-resolution Hi-C data and execute the core `BHiCect` clustering algorithm over a target chromosome.
 
@@ -49,7 +49,7 @@ saveRDS(res_obj, file = "chr20_res_obj.rds")
 
 ### 2. Heatmap visualisation of multi-resolution clustering
 
-`BHiCect2` clusters are best visulised as an interaction heatmap. You can distribute this workload effortlessly using a `future` execution plan.
+`BHiCect2` clusters are best visualised as an interaction heatmap. You can distribute this workload effortlessly using a `future` execution plan.
 
 ```R
 library(future)
@@ -60,24 +60,26 @@ summary_tbl <- res_obj$nodes
 
 # 1. Spawn parallel workers based on your infrastructure (e.g., 4 cores)
 plan(multisession, workers = 4)
-
 # 2. Compute spatial geometric coordinates in parallel
 global_geometry <- compute_cluster_rectangles(summary_tbl, current_MresFile)
-
 # 3. Terminate background processes cleanly to liberate system RAM
 plan(sequential)
 
 # Plot global contact heatmap with identified clusters
-
+## Chromosome-wide
 plot_cluster_heatmap(global_geometry)
-
+## Interval of interest
 plot_cluster_heatmap(global_geometry,xlim=c(3.5e7,4e7))
 
 
 ```
-
+#### Chromosome-wide heatmap
 ![BHiCect2 Cluster Heatmap](man/figures/global_heatmap_example.png)
+
+#### Region of interest
 ![BHiCect2 Cluster Heatmap](man/figures/heatmap_example.png)
+
+Since this function outputs a ggplot object it can be integrated with other omics plots using plotgardener or patchwork.
 
 ### 3. Diagnostic Visualization & Density Profiling
 
@@ -89,9 +91,9 @@ plot_node_density_boot("D4_R5_29_30000000_44000000", summary_tbl)
 plot_node_density_boot("D13_R13_4_56396000_56399000", summary_tbl)
 
 ```
-
+#### Robust cluster
 ![BHiCect2 Cluster Heatmap](man/figures/good_cluster_example.png)
-
+#### Ambiguous cluster
 ![BHiCect2 Cluster Heatmap](man/figures/poor_cluster_example.png)
 ### 4. Downstream Integration (Bioconductor Ecosystem)
 
