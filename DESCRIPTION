@@ -17,10 +17,10 @@ Imports:
     data.tree,
     dplyr,
     furrr,
+    hictkR,
     future,
     GenomicRanges,
     ggplot2,
-    hictkR,
     igraph,
     IRanges,
     magrittr,
@@ -30,11 +30,7 @@ Imports:
     rlang,
     RSpectra,
     tibble,
-    RColorBrewer,
-    data.tree,
-    readr,
     tidyr,
-    viridisLite
 Remotes:
     paulsengroup/hictkR
 Suggests:
