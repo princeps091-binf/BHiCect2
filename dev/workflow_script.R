@@ -36,7 +36,7 @@ plan(sequential)
 
 # %%
 
-plot_cluster_heatmap(global_geometry)
+plot_cluster_heatmap(global_geometry, xlim = c(3.5e7, 4e7))
 
 # %%
 plot_node_density_boot("D4_R5_29_30000000_44000000", summary_tbl)
