@@ -3,11 +3,11 @@ library(devtools)
 devtools::load_all()
 
 options(scipen = 9999)
-path <- "/home/vipink/Documents/BHiCeCT2/data/HCT116/4DNFIP8RKGDG.mcool"
+path <- "/home/vipink/Documents/BHiCeCT2/data/GM12878/4DNFI2ZUCIHD.mcool"
 current_MresFile <- hictkR::MultiResFile(path)
-res_obj <- BHiCect(current_MresFile, "chr20", threshold = 0.5)
+res_obj <- BHiCect(current_MresFile, "chr8", threshold = 0.5)
 # %%
-saveRDS(res_obj, file = "~/Documents/BHiCeCT2/data/chr20_res_obj.rds")
+saveRDS(res_obj, file = "~/Documents/BHiCeCT2/data/GM12878_chr8_res_obj.rds")
 # %%
 
 library(igraph)
@@ -17,27 +17,39 @@ library(dplyr)
 library(ggplot2)
 library(future)
 library(furrr)
+library(cowplot)
 # %%
 path <- "/home/vipink/Documents/BHiCeCT2/data/HCT116/4DNFIP8RKGDG.mcool"
-current_MresFile <- hictkR::MultiResFile(path)
-res_obj <- readRDS("~/Documents/BHiCeCT2/data/chr20_res_obj.rds")
+HCT116_MresFile <- hictkR::MultiResFile(path)
+HCT116_res_obj <- readRDS("~/Documents/BHiCeCT2/data/chr8_res_obj.rds")
 
-summary_tbl <- res_obj$nodes
+HCT116_summary_tbl <- HCT116_res_obj$nodes
 
+GM12878_path <- "/home/vipink/Documents/BHiCeCT2/data/GM12878/4DNFI2ZUCIHD.mcool"
+GM12878_MresFile <- hictkR::MultiResFile(GM12878_path)
+GM12878_res_obj <- readRDS("~/Documents/BHiCeCT2/data/GM12878_chr8_res_obj.rds")
+
+GM12878_summary_tbl <- GM12878_res_obj$nodes
 # %%
 # 1. Set up the background parallel workers (e.g., using 4 cores)
 plan(multisession, workers = 4)
-
 # 2. Run the function (It will instantly execute in parallel)
-global_geometry <- compute_cluster_rectangles(summary_tbl, current_MresFile)
+HCT116_global_geometry <- compute_cluster_rectangles(HCT116_summary_tbl, HCT116_MresFile)
+# 3. Explicitly close the background connections when done to free up RAM
+plan(sequential)
 
+plan(multisession, workers = 4)
+# 2. Run the function (It will instantly execute in parallel)
+GM12878_global_geometry <- compute_cluster_rectangles(GM12878_summary_tbl, GM12878_MresFile)
 # 3. Explicitly close the background connections when done to free up RAM
 plan(sequential)
 
 # %%
 
-plot_cluster_heatmap(global_geometry, xlim = c(3.5e7, 4e7))
+p1 <- plot_cluster_heatmap(GM12878_global_geometry,xlim=c(2.5e7,2.75e7))
+p2 <- plot_cluster_heatmap(HCT116_global_geometry,xlim=c(2.5e7,2.75e7))
 
+plot_grid(p1, p2, align = "h", axis = "tb")
 # %%
 plot_node_density_boot("D4_R5_29_30000000_44000000", summary_tbl)
 

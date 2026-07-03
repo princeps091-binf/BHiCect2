@@ -342,7 +342,11 @@ fetch_nested_locations <- function(chrom,ids,res_level,high_res_level, MresFile)
   gr_current <-GenomicRanges::GRanges(seqnames = chrom, ranges = IRanges::IRanges(start = ids, width = current_bin_size - 1))
 
   new_res_hic <- hictkR::fetch(hictkR::File(MresFile$path,resolution = new_bin_size), paste0(chrom,':',min(ids),'-',tmp_end),join=TRUE)
-
+  if (nrow(new_res_hic) == 0) {
+      # If no interactions exist at high-res, return an empty numeric vector
+      # or fallback to sequential bins covering the original low-res coordinates
+      return(numeric(0)) 
+    }
   gr_new <- unique(GenomicRanges::GRanges(seqnames = chrom, ranges = IRanges::IRanges(start = c(new_res_hic$start1,new_res_hic$start2), end = c(new_res_hic$end1 - 1,new_res_hic$end2 -1))))
 
 
@@ -484,7 +488,15 @@ recursive_spectral <- function(MresFile, chrom, ids, res_level = 1, depth = 1, p
     is_aligned <- (current_val %% candidate_vals == 0)
     high_res_level <- candidate_res_lvls[which(is_aligned)[1]]
     high_res_ids <- fetch_nested_locations(chrom,ids, res_level,high_res_level,MresFile)
+    if (length(high_res_ids) < 1) {
+      if (verbose) message(paste0(current_id,": Found to be leaf because no interaction data"))
+      node_obj <- new_flat_node(current_id, "Leaf", n_locs, res_level, depth, NA, parent_id, ids,NA,NA,NA,NA)
+      assign(current_id, node_obj, envir = node_registry)
+      return(if(!is.na(parent_id)) data.frame(from=parent_id, to=current_id) else data.frame())
+    }
+  
     return(recursive_spectral(MresFile,chrom,high_res_ids, high_res_level, depth, parent_id,threshold,node_registry))
+
   }
   # ---BRANCH 2: Terminal Leaf (Smallest resolution) ---
   if (res_level == max_res && n_locs < 4){
