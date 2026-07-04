@@ -1,7 +1,7 @@
 library(devtools)
 
 devtools::load_all()
-
+39070000
 options(scipen = 9999)
 path <- "/home/vipink/Documents/BHiCeCT2/data/GM12878/4DNFI2ZUCIHD.mcool"
 current_MresFile <- hictkR::MultiResFile(path)
