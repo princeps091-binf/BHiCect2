@@ -46,8 +46,8 @@ plan(sequential)
 
 # %%
 
-p1 <- plot_cluster_heatmap(GM12878_global_geometry,xlim=c(2.5e7,2.75e7))
-p2 <- plot_cluster_heatmap(HCT116_global_geometry,xlim=c(2.5e7,2.75e7))
+p1 <- plot_cluster_heatmap(GM12878_global_geometry, xlim = c(3.5e7, 3.75e7))
+p2 <- plot_cluster_heatmap(HCT116_global_geometry, xlim = c(3.5e7, 3.75e7))
 
 plot_grid(p1, p2, align = "h", axis = "tb")
 # %%
