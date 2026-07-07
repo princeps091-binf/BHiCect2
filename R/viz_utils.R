@@ -1,3 +1,72 @@
+#' Find Contiguous Genomic Intervals
+#'
+#' Evaluates a vector of sparse genomic bin positions at a specified resolution
+#' and compresses them into a list of continuous genomic interval blocks.
+#'
+#' @param ids A numeric or integer vector of starting coordinate positions.
+#' @param res_level Integer. The base-pair resolution tier size (e.g., \code{10000})
+#'
+#' @return A \code{list} of items containing \code{start} and \code{end} values
+#'   of contiguous fragments, or \code{NULL} if \code{ids} is empty.
+#'
+#' @importFrom purrr map
+#' @export
+find_genomic_runs <- function(ids, res_level) {
+        if (length(ids) == 0) {
+                return(NULL)
+        }
+        ids <- sort(unique(ids))
+        breaks <- c(0, which(diff(ids) > res_level), length(ids))
+
+        purrr::map(1:(length(breaks) - 1), ~ {
+                start_idx <- breaks[.x] + 1
+                end_idx <- breaks[.x + 1]
+                list(start = ids[start_idx], end = ids[end_idx] + res_level)
+        })
+}
+
+#' Construct Spatial Multi-Block Cluster Squares
+#'
+#' Converts a cluster's flat genomic position IDs into individual 
+#' 1D blocks, then calculates the pairwise Cartesian cross-product to 
+#' generate both on- and off-diagonal 2D bounding boxes.
+#'
+#' @param x A data frame or tibble containing a single cluster row entry (must 
+#'   include columns: \code{res_level}, \code{ids}, and \code{depth}).
+#' @param res_vec A numeric vector mapping resolution level indexes to their 
+#'   base-pair widths.
+#'
+#' @return A tibble with columns \code{xmin}, \code{xmax}, \code{ymin}, 
+#'   \code{ymax}, and \code{depth}.
+#' 
+#' @importFrom dplyr pull tibble mutate
+#' @importFrom purrr pmap_dfr
+#' @export
+get_cl_plot_rectangles <- function(x, res_vec) {
+        current_res <- res_vec[x |> dplyr::pull(res_level)]
+
+        tmp_contiguous_blocks <- find_genomic_runs(unlist(x |> dplyr::pull(ids)), current_res)
+        if (is.null(tmp_contiguous_blocks)) {
+                return(dplyr::tibble())
+        }
+
+        rectangle_set_df <- expand.grid(
+                r1 = seq_along(tmp_contiguous_blocks),
+                r2 = seq_along(tmp_contiguous_blocks)
+        ) |>
+                purrr::pmap_dfr(function(r1, r2) {
+                        run_i <- tmp_contiguous_blocks[[r1]]
+                        run_j <- tmp_contiguous_blocks[[r2]]
+                        dplyr::tibble(
+                                xmin = run_i$start, xmax = run_i$end,
+                                ymin = run_j$start, ymax = run_j$end
+                        )
+                })
+
+        return(rectangle_set_df |> dplyr::mutate(depth = x |> dplyr::pull(depth),res_level =x |> dplyr::pull(res_level) ))
+}
+
+
 #' Compute Cluster Polygons/Rectangles from Tree Summary via Parallel Processing
 #'
 #' Evaluates non-contiguous genomic runs from hierarchical partitioning clusters
@@ -16,47 +85,7 @@
 #' @export
 compute_cluster_rectangles <- function(summary_tbl, current_MresFile) {
         extracted_resolutions <- rev(current_MresFile$resolutions)
-        # Internal helper to isolate contiguous blocks along a chromosome arm
-        find_genomic_runs <- function(ids, res_level) {
-                if (length(ids) == 0) {
-                        return(NULL)
-                }
-                ids <- sort(unique(ids))
-                breaks <- c(0, which(diff(ids) > res_level), length(ids))
-
-                purrr::map(1:(length(breaks) - 1), ~ {
-                        start_idx <- breaks[.x] + 1
-                        end_idx <- breaks[.x + 1]
-                        list(start = ids[start_idx], end = ids[end_idx] + res_level)
-                })
-        }
-
-        # Internal helper to construct pairs of combinations across blocks
-        get_cl_plot_rectangles <- function(x, res_vec) {
-                current_res <- res_vec[x |> dplyr::pull(res_level)]
-
-                tmp_contiguous_blocks <- find_genomic_runs(unlist(x |> dplyr::pull(ids)), current_res)
-                if (is.null(tmp_contiguous_blocks)) {
-                        return(dplyr::tibble())
-                }
-
-                rectangle_set_df <- expand.grid(
-                        r1 = seq_along(tmp_contiguous_blocks),
-                        r2 = seq_along(tmp_contiguous_blocks)
-                ) |>
-                        purrr::pmap_dfr(function(r1, r2) {
-                                run_i <- tmp_contiguous_blocks[[r1]]
-                                run_j <- tmp_contiguous_blocks[[r2]]
-                                dplyr::tibble(
-                                        xmin = run_i$start, xmax = run_i$end,
-                                        ymin = run_j$start, ymax = run_j$end
-                                )
-                        })
-
-                return(rectangle_set_df |> dplyr::mutate(depth = x |> dplyr::pull(depth)))
-        }
-
-        # ==========================================================================
+       # ==========================================================================
         # PARALLEL PROCESSING STEP via furrr
         # ==========================================================================
         # We replace purrr::map_dfr with furrr::future_map_dfr.
@@ -297,4 +326,155 @@ plot_node_density_boot <- function(node_id, summary_tbl, fill_tail = TRUE) {
                 )
 
         return(p)
+}
+
+#' Plot Multi-Resolution Heatmap Panel
+#'
+#' Generates a composite, coordinate-locked side-by-side pairwise heatmap sequence
+#' illustrating how an individual parent domain fractionates into nested
+#' sub-domains across fine-resolution layers.
+#'
+#' @param node_id Character or integer. The unique identifier of the target root
+#'   parent cluster node in the hierarchy.
+#' @param summary_tbl A data frame or tibble containing the structural registry
+#'   tree (must include columns: \code{id}, \code{parent_id}, \code{chrom},
+#'   \code{start}, \code{end}, and \code{res_level}).
+#' @param MresFile An mcool file object handle initialized via \code{hictkR}.
+#'
+#' @return A composite \code{patchwork} assembly displaying stacked rows of
+#'   coordinate-locked parent-child heatmap comparisons.
+#'
+#' @importFrom dplyr filter bind_rows
+#' @importFrom rlang sym
+#' @importFrom hictkR File fetch
+#' @importFrom ggplot2 geom_rect aes labs
+#' @importFrom patchwork wrap_plots plot_annotation
+#'
+#' @export
+plot_multires_heatmap_panel <- function(node_id, summary_tbl, MresFile) {
+
+
+  # 1. Isolate parent and its direct child nodes
+  parent_data <- summary_tbl |>
+          dplyr::filter(id == !!node_id)
+  if (nrow(parent_data) == 0) {
+      stop(paste0("Error: Node '", node_id, "' was not found in summary_tbl."))
+  }
+  current_parents <- node_id
+  all_descendants <- list()
+
+  while (length(current_parents) > 0) {
+    next_generation <- summary_tbl |> 
+      dplyr::filter(parent_id %in% !!current_parents)
+    
+    if (nrow(next_generation) > 0) {
+      all_descendants[[length(all_descendants) + 1]] <- next_generation
+      current_parents <- next_generation$id
+    } else {
+      current_parents <- c() # Stop when we hit terminal leaves across all branches
+    }
+  }
+  
+  if (length(all_descendants) == 0) {
+    stop(paste0("Error: Node '", node_id, "' has no descendants; it is a terminal Leaf node."))
+  }
+  
+  # Combine generations into a single comprehensive tracking table
+  descendants_tbl <- dplyr::bind_rows(all_descendants)
+  # 2. Establish GLOBAL, STRICT viewport coordinate limits based on the parent node
+  chrom <- parent_data$chrom
+  global_start <- parent_data$start
+  global_end   <- parent_data$end
+  query_range  <- paste0(chrom, ":", global_start, "-", global_end)
+  
+  parent_res <- rev(MresFile$resolutions)[parent_data$res_level]
+  
+  # 3. Plot 1: The Parent Baseline View
+  matrix_parent <- hictkR::fetch(hictkR::File(MresFile$path, resolution = parent_res), query_range,join=TRUE)
+  p_parent <- gg_heatmap_locked(matrix_parent, parent_res, 
+                                 title = paste("Parent Base Res:", parent_res / 1000, "kb"),
+                                 x_lims = c(global_start, global_end)) +
+    # Draw Parent Boundary Bounding Box
+    geom_rect(aes(xmin = !!global_start, xmax = !!global_end, ymin = !!global_start, ymax = !!global_end), 
+              color = "red", fill = NA, size = 1) +
+    # Overlay all child nodes color-coded by their resolution level
+    geom_rect(data = descendants_tbl, aes(xmin = start, xmax = end, ymin = start, ymax = end, color = as.factor(res_level)), 
+              fill = NA, size = 0.8, inherit.aes = FALSE) +
+    labs(color = "Child Resolution Tier")
+  
+  # 4. Generate High-Res Tier Plots with Locked Canvas Viewports
+  unique_descendant_res_levels <- unique(descendants_tbl$res_level) |> sort()
+  descendant_plots <- list()
+  
+  for (res_lvl in unique_descendant_res_levels) {
+    current_child_res <- rev(MresFile$resolutions)[res_lvl]
+    tier_nodes <- descendants_tbl |> dplyr::filter(res_level == !!res_lvl)
+    # Fetch data using the exact same global genomic range
+    matrix_tier <- hictkR::fetch(hictkR::File(MresFile$path, resolution = current_child_res), query_range,join=TRUE)
+    
+    # Render with the strict global coordinate limits enforced
+    p_tier <- gg_heatmap_locked(matrix_tier, current_child_res, 
+                                 title = paste("Child Tier Res:", current_child_res / 1000, "kb"),
+                                 x_lims = c(global_start, global_end)) +
+      geom_rect(data = tier_nodes, aes(xmin = start, xmax = end, ymin = start, ymax = end), 
+                color = "blue", fill = NA, size = 0.8, inherit.aes = FALSE)
+    
+    descendant_plots[[as.character(current_child_res)]] <- (p_parent | p_tier)
+  }
+  
+  # 5. Composite Assembly via Patchwork
+  children_layout <- patchwork::wrap_plots(descendant_plots, ncol = 1)
+  
+  composite_plot <- children_layout + 
+    plot_annotation(title = paste("Exhaustive Multi-Resolution Sub-Tree Decomposition:", node_id),
+                    subtitle = paste("Strict Coordinate Lock Area:", query_range))
+  
+  return(composite_plot)
+}
+
+#' Generate a Coordinate-Locked, Mirrored Hi-C Heatmap
+#'
+#' Takes a raw upper-triangle Hi-C contact data frame, mirror-inverts it to 
+#' create a full symmetric square matrix canvas, and renders it with strict 
+#' coordinate locks enforced.
+#'
+#' @param df A data frame containing fetched Hi-C interactions (must include 
+#'   columns: \code{start1}, \code{start2}, \code{end1}, \code{end2}, and \code{count}).
+#' @param bin_size Integer. The base-pair resolution of the input matrix slice 
+#'   (e.g., \code{10000} for 10kb).
+#' @param title Character. The title to display above the plot panel.
+#' @param x_lims A numeric vector of length 2 establishing the absolute 
+#'   minimum and maximum genomic coordinates (\code{c(start, end)}) for the canvas.
+#'
+#' @return A symmetric, coordinate-locked \code{ggplot} heatmap object.
+#' 
+#' @importFrom dplyr rename bind_rows distinct
+#' @importFrom ggplot2 ggplot aes geom_tile scale_fill_viridis_c coord_cartesian 
+#'   theme_minimal labs theme element_blank
+#' 
+#' @export
+gg_heatmap_locked <- function(df, bin_size, title, x_lims) {
+  # 1. Check if data frame is empty to prevent crashes
+  if (nrow(df) == 0) {
+    df_full <- df
+  } else {
+    # 2. Mirror the upper triangle to the lower triangle
+    df_mirrored <- df |> 
+      dplyr::rename(start1 = start2, start2 = start1,
+                    end1 = end2, end2 = end1)
+    
+    # 3. Combine them together, ensuring unique pixel coordinates
+    df_full <- dplyr::bind_rows(df, df_mirrored) |> 
+      dplyr::distinct(start1, start2, .keep_all = TRUE)
+  }
+  ggplot(df_full, aes(x = start1, y = start2, fill = count)) +
+    geom_tile() +
+    scale_fill_viridis_c(option = "magma", trans = "log10", na.value = "transparent") +
+    # CRITICAL FIX: Enforces identical canvas boundaries regardless of underlying matrix bin variations
+    coord_cartesian(xlim = x_lims, ylim = x_lims, expand = FALSE) +
+    theme_minimal() +
+    labs(title = title, x = "Genomic Position (bp)", y = "Genomic Position (bp)") +
+    theme(panel.grid.major = element_blank(), 
+          panel.grid.minor = element_blank(),
+          aspect.ratio = 1) # Force rigid square metrics globally
 }
