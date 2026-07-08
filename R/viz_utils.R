@@ -340,6 +340,8 @@ plot_node_density_boot <- function(node_id, summary_tbl, fill_tail = TRUE) {
 #'   tree (must include columns: \code{id}, \code{parent_id}, \code{chrom},
 #'   \code{start}, \code{end}, and \code{res_level}).
 #' @param MresFile An mcool file object handle initialized via \code{hictkR}.
+#' @param data_value Character. The matrix matrix normalization balancing weights target 
+#'   (e.g., \code{"NONE"}, \code{"KR"}, or \code{"ICE"}).
 #'
 #' @return A composite \code{patchwork} assembly displaying stacked rows of
 #'   coordinate-locked parent-child heatmap comparisons.
@@ -351,21 +353,16 @@ plot_node_density_boot <- function(node_id, summary_tbl, fill_tail = TRUE) {
 #' @importFrom patchwork wrap_plots plot_annotation
 #'
 #' @export
-plot_multires_heatmap_panel <- function(node_id, summary_tbl, MresFile) {
-
-
+plot_multiresolution_heatmap_panel <- function(node_id, summary_tbl, MresFile, data_value) {
+  
   # 1. Isolate parent and its direct child nodes
-  parent_data <- summary_tbl |>
-          dplyr::filter(id == !!node_id)
-  if (nrow(parent_data) == 0) {
-      stop(paste0("Error: Node '", node_id, "' was not found in summary_tbl."))
-  }
+  parent_data <- summary_tbl |> dplyr::filter(id == node_id)
+  
   current_parents <- node_id
   all_descendants <- list()
-
   while (length(current_parents) > 0) {
     next_generation <- summary_tbl |> 
-      dplyr::filter(parent_id %in% !!current_parents)
+      dplyr::filter(parent_id %in% current_parents)
     
     if (nrow(next_generation) > 0) {
       all_descendants[[length(all_descendants) + 1]] <- next_generation
@@ -381,6 +378,7 @@ plot_multires_heatmap_panel <- function(node_id, summary_tbl, MresFile) {
   
   # Combine generations into a single comprehensive tracking table
   descendants_tbl <- dplyr::bind_rows(all_descendants)
+  descendant_rect_tbl <- compute_cluster_rectangles(descendants_tbl,MresFile)
   # 2. Establish GLOBAL, STRICT viewport coordinate limits based on the parent node
   chrom <- parent_data$chrom
   global_start <- parent_data$start
@@ -390,34 +388,36 @@ plot_multires_heatmap_panel <- function(node_id, summary_tbl, MresFile) {
   parent_res <- rev(MresFile$resolutions)[parent_data$res_level]
   
   # 3. Plot 1: The Parent Baseline View
-  matrix_parent <- hictkR::fetch(hictkR::File(MresFile$path, resolution = parent_res), query_range,join=TRUE)
+  matrix_parent <- hictkR::fetch(hictkR::File(MresFile$path, resolution = parent_res),normalization = data_value, query_range,join=TRUE)
   p_parent <- gg_heatmap_locked(matrix_parent, parent_res, 
                                  title = paste("Parent Base Res:", parent_res / 1000, "kb"),
                                  x_lims = c(global_start, global_end)) +
     # Draw Parent Boundary Bounding Box
-    geom_rect(aes(xmin = !!global_start, xmax = !!global_end, ymin = !!global_start, ymax = !!global_end), 
+    geom_rect(aes(xmin = global_start, xmax = global_end, ymin = global_start, ymax = global_end), 
               color = "red", fill = NA, size = 1) +
     # Overlay all child nodes color-coded by their resolution level
-    geom_rect(data = descendants_tbl, aes(xmin = start, xmax = end, ymin = start, ymax = end, color = as.factor(res_level)), 
-              fill = NA, size = 0.8, inherit.aes = FALSE) +
-    labs(color = "Child Resolution Tier")
-  
+    geom_rect(data = descendant_rect_tbl, aes(xmin = xmin, xmax = xmax, ymin = ymin, ymax = ymax, color = depth), 
+              fill = NA, linewidth = 0.8, inherit.aes = FALSE) +
+    labs(color = "Child depth") +
+    scale_color_viridis_c(option = "viridis", na.value = "transparent") 
   # 4. Generate High-Res Tier Plots with Locked Canvas Viewports
-  unique_descendant_res_levels <- unique(descendants_tbl$res_level) |> sort()
+  unique_descendant_res_levels <- unique(descendant_rect_tbl$res_level) |> sort()
   descendant_plots <- list()
   
   for (res_lvl in unique_descendant_res_levels) {
     current_child_res <- rev(MresFile$resolutions)[res_lvl]
-    tier_nodes <- descendants_tbl |> dplyr::filter(res_level == !!res_lvl)
+    tier_nodes <- descendant_rect_tbl |> dplyr::filter(res_level == res_lvl)
     # Fetch data using the exact same global genomic range
-    matrix_tier <- hictkR::fetch(hictkR::File(MresFile$path, resolution = current_child_res), query_range,join=TRUE)
+    matrix_tier <- hictkR::fetch(hictkR::File(MresFile$path, resolution = current_child_res), normalization = data_value, query_range,join=TRUE)
     
     # Render with the strict global coordinate limits enforced
     p_tier <- gg_heatmap_locked(matrix_tier, current_child_res, 
                                  title = paste("Child Tier Res:", current_child_res / 1000, "kb"),
                                  x_lims = c(global_start, global_end)) +
-      geom_rect(data = tier_nodes, aes(xmin = start, xmax = end, ymin = start, ymax = end), 
-                color = "blue", fill = NA, size = 0.8, inherit.aes = FALSE)
+      geom_rect(data = tier_nodes, aes(xmin = xmin, xmax = xmax, ymin = ymin, ymax = ymax,color = depth), 
+                 fill = NA, linewidth = 0.8, inherit.aes = FALSE) +
+    scale_color_viridis_c(option = "viridis", na.value = "transparent") 
+
     
     descendant_plots[[as.character(current_child_res)]] <- (p_parent | p_tier)
   }
@@ -431,6 +431,9 @@ plot_multires_heatmap_panel <- function(node_id, summary_tbl, MresFile) {
   
   return(composite_plot)
 }
+
+
+
 
 #' Generate a Coordinate-Locked, Mirrored Hi-C Heatmap
 #'

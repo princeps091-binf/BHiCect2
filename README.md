@@ -5,8 +5,7 @@
 <!-- badges: end -->
 
 The goal of BHiCect2 is to cluster HiC data as described in our [manuscript](). <!-- markdownlint-disable-line MD042 -->
-Briefly, we decompose intra-chromosomal HiC data into nested clusters of chromosome regions across multiple resolutions
-starting from the complete chromosome all the way to DNA-loops at the maximum resolution provided.
+Briefly, we decompose intra-chromosomal HiC data into nested clusters of preferentially self-interacting chromosome regions across all resolutions.
 
 
 ---
@@ -16,15 +15,16 @@ starting from the complete chromosome all the way to DNA-loops at the maximum re
 `BHiCect2` is an R package tailored for computational biologists and bioinformaticians looking to extract high-confidence chromatin clusters from Hi-C data. By interfacing natively with modern `.mcool` and `.hic` data formats via `hictkR`, `BHiCect2` handles multi-resolution tracking, cluster identification, and bootstrapping-based cluster significance at genomic scale.
 
 ## Key Features
-
-* **Native Multi-Res Support:** Direct indexing of `.mcool` files via fast C++ backend interfaces (`hictkR`).
-* **Interoperable Data Layouts:** Seamless conversion of hierarchical clusters into Bioconductor-native `GRangesList` objects for downstream enrichment and overlap analysis.
-* **Heatmap visualisation** of the multi-resolution architecture uncovered by BHiCect
+* **Native Multi-Res Support:** Direct indexing of `.mcool` files via lightning-fast C++ backend interfaces (`hictkR`).
+* **Surgical Locus Analysis (`BHiCect_Locus`):** Skip whole-chromosome processing to focus exclusively on specific gene neighborhoods, TADs or transcriptional hubs.
+* **Non-Contiguous Interaction Networks:** Capture dynamic spatial architecture where disconnected linear regions (e.g., distant super-enhancers looping to promoters) are mathematically grouped into a single structural cluster.
+* **Multi-Resolution Heatmap visualisations:** Generate various heatmap figures, perfect for tracing how a single parent domain fractures into child loops or comparing wild-type loops against degraded/altered states.
+* **Interoperable Data Layouts:** Seamless conversion of hierarchical clusters into Bioconductor-native `GRangesList` objects for downstream multi-omic integration.
 ---
 
-## Quick Start Guide
+## 📖 Quick Start Guide
 
-### 1. BHiCect clustering
+### 1. Global Chromosome-Wide Clustering
 
 Load your multi-resolution Hi-C data and execute the core `BHiCect` clustering algorithm over a target chromosome.
 
@@ -42,13 +42,25 @@ current_MresFile <- hictkR::MultiResFile(mcool_path)
 # Execute tree-based clustering algorithm on target chromosome
 res_obj <- BHiCect(current_MresFile, chrom = "chr20", threshold = 0.5)
 
-# (Optional) Persist your computed result object
+# (Optional) Save your computed result object
 saveRDS(res_obj, file = "chr20_res_obj.rds")
 
 ```
+### 2. Targeted Locus Analysis & Multi-Resolution Visualisation (New ✨)
+Isolate a specific genomic interval of interest (e.g., a pre-called TAD or a gene neighborhood) and execute top-down recursive spectral decomposition. 
 
-### 2. Heatmap visualisation of multi-resolution clustering
-
+```R 
+# Dissect the MYC locus environment down to fine-resolution sub-structures
+myc_locus_tree <- BHiCect_Locus(
+  MresFile  = current_MresFile,
+  chrom     = "chr8",
+  tad_start = 127235000, 
+  tad_end   = 128243000, 
+  start_res = 25000,     # Initialize root clustering at 25kb to anchor the domain
+  threshold = 0.45       # Spectral split sensitivity threshold
+)
+```
+### 3. Heatmap visualisation of clustering
 `BHiCect2` clusters are best visualised as an interaction heatmap. You can distribute this workload effortlessly using a `future` execution plan.
 
 ```R
@@ -78,6 +90,16 @@ plot_cluster_heatmap(global_geometry,xlim=c(3.5e7,4e7))
 
 #### Region of interest
 ![BHiCect2 Cluster Heatmap](man/figures/heatmap_example.png)
+
+This visualisation is particularly useful to evaluate changes in chromatin architecture following specific treatment as illustrated below with the effect of auxin mediated depletion of cohesin at the MYC locus.
+
+
+![BHiCect2 Cluster Heatmap](man/figures/ctrl_vs_auxin.png)
+
+We also have dedicated functions to integrate our clustering results with the original HiC data across all resolutions used
+
+
+![BHiCect2 Cluster Heatmap](man/figures/mres_heat.png)
 
 Since this function outputs a ggplot object it can be integrated with other omics plots using plotgardener or patchwork.
 

@@ -5,65 +5,6 @@ devtools::load_all()
 
 # %%
 
-library(hictkR)
-library(dplyr)
-
-BHiCect_Locus <- function(MresFile, chrom, tad_start, tad_end, start_res, threshold = 0.5) {
-  message(sprintf(
-    "Targeted Analysis: Isolating matrix window for TAD %s:%d-%d at %d kb",
-    chrom, tad_start, tad_end, start_res / 1000
-  ))
-
-  # 1. Identify the resolution level index matching the input TAD resolution
-  # We search your file's resolution vector (sorted from coarsest to finest)
-  all_res <- rev(MresFile$resolutions)
-  start_lvl <- which(all_res == start_res)
-
-  if (length(start_lvl) == 0) {
-    stop(paste(
-      "Error: The specified tad_res (", start_res,
-      ") does not exist in your multi-resolution file."
-    ))
-  }
-
-  # 2. Open the file directly at the native TAD resolution layer
-  f <- hictkR::File(MresFile$path, resolution = start_res)
-
-  # 3. Restrict initialization to only the bins contained inside the TAD boundaries
-  init_ids <- f$bins |>
-    dplyr::filter(chrom == !!chrom & start >= tad_start & start <= tad_end) |>
-    dplyr::pull(start)
-
-  if (length(init_ids) == 0) {
-    stop("Execution halted: No valid genomic bins were found within the provided coordinates at this resolution.")
-  }
-
-  # 4. Initialize the identical environment tracking registry
-  node_registry <- new.env(hash = TRUE, parent = emptyenv())
-  print(length(init_ids))
-  # 5. Invoke the core recursive engine, forcing the root depth to 1 and tagging the external parent
-  spec_res <- recursive_spectral(
-    MresFile = MresFile,
-    chrom = chrom,
-    ids = init_ids,
-    res_level = start_lvl,
-    depth = 1,
-    parent_id = "ORIGINAL_INTERVAL",
-    threshold = threshold,
-    node_registry = node_registry
-  )
-
-  # 6. Reconstruct the standard node table layout
-  cluster_tibble <- do.call(bind_rows, eapply(node_registry, function(x) node_to_row(x)))
-
-  return(list(
-    nodes = cluster_tibble,
-    edges = spec_res
-  ))
-}
-
-# %%
-
 library(readr)
 
 convert_4dn_boundaries_to_tads <- function(boundary_bed_path, min_tad_size = 40000, max_tad_size = 2000000) {
@@ -103,7 +44,7 @@ convert_4dn_boundaries_to_tads <- function(boundary_bed_path, min_tad_size = 400
 options(scipen = 9999)
 tad_tbl <- convert_4dn_boundaries_to_tads("~/Documents/BHiCeCT2/data/GM12878/4DNFIX26B8E9.bed.gz")
 
-
+# %%
 ctrl_path <- "/home/vipink/Documents/BHiCeCT2/data/auxin_expt/ctrl/4DNFINIQYFKT.mcool"
 ctrl_MresFile <- hictkR::MultiResFile(ctrl_path)
 
@@ -145,7 +86,6 @@ ctrl_summary_tbl <- ctrl_res$nodes
 
 auxin_res <- BHiCect_Locus(auxin_MresFile, "chr8", 127235000, 128243000, 25000)
 auxin_summary_tbl <- auxin_res$nodes
-
 # %%
 ctrl_geometry <- compute_cluster_rectangles(ctrl_summary_tbl, ctrl_MresFile)
 auxin_geometry <- compute_cluster_rectangles(auxin_summary_tbl, auxin_MresFile)
@@ -153,10 +93,12 @@ auxin_geometry <- compute_cluster_rectangles(auxin_summary_tbl, auxin_MresFile)
 pctrl <- plot_cluster_heatmap(ctrl_geometry)
 pauxin <- plot_cluster_heatmap(auxin_geometry)
 
-patchwork::wrap_plots(c(pctrl, pauxin), nrow = 1)
+gg_patch <- patchwork::wrap_plots(c(pctrl, pauxin), nrow = 1)
+ggsave("./man/figures/ctrl_vs_auxin.png", gg_patch, width = 60, height = 20, units = "cm")
 # %%
-current_MresFile <- auxin_MresFile
-summary_tbl <- auxin_summary_tbl |>
+library(stringr)
+current_MresFile <- ctrl_MresFile
+summary_tbl <- ctrl_summary_tbl |>
   mutate(start = str_split(id, "_") |> purrr::map_int(\(x)as.integer(x[4]))) |>
   mutate(end = str_split(id, "_") |> purrr::map_int(\(x)as.integer(x[5]))) |>
   mutate(chrom = "chr8")
@@ -165,4 +107,6 @@ root_id <- summary_tbl |>
   filter(parent_id == "ORIGINAL_INTERVAL") |>
   pull(id)
 
-plot_exhaustive_locked_split(root_id, summary_tbl, current_MresFile, "KR")
+gg_mres <- plot_multiresolution_heatmap_panel(root_id, summary_tbl, current_MresFile, "KR")
+
+ggsave("./man/figures/mres_heat.png", gg_mres, width = 30, height = 40, units = "cm")

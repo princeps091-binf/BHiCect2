@@ -11,7 +11,7 @@ devtools::load_all()
 options(scipen = 9999)
 
 # %%
-plot_exhaustive_locked_split <- function(node_id, summary_tbl, MresFile, data_value) {
+plot_multiresolution_heatmaps <- function(node_id, summary_tbl, MresFile, data_value) {
   
   # 1. Isolate parent and its direct child nodes
   parent_data <- summary_tbl |> dplyr::filter(id == node_id)
