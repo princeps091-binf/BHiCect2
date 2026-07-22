@@ -90,8 +90,8 @@ auxin_summary_tbl <- auxin_res$nodes
 ctrl_geometry <- compute_cluster_rectangles(ctrl_summary_tbl, ctrl_MresFile)
 auxin_geometry <- compute_cluster_rectangles(auxin_summary_tbl, auxin_MresFile)
 
-pctrl <- plot_cluster_heatmap(ctrl_geometry)
-pauxin <- plot_cluster_heatmap(auxin_geometry)
+pctrl <- plot_cluster_heatmap(ctrl_geometry) + ggtitle("Control")
+pauxin <- plot_cluster_heatmap(auxin_geometry) + ggtitle("Cohesin Depleted (auxin treated)")
 
 gg_patch <- patchwork::wrap_plots(c(pctrl, pauxin), nrow = 1)
 ggsave("./man/figures/ctrl_vs_auxin.png", gg_patch, width = 60, height = 20, units = "cm")

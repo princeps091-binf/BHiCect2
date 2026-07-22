@@ -16,7 +16,7 @@ Briefly, we decompose intra-chromosomal HiC data into nested clusters of prefere
 
 ## Key Features
 * **Native Multi-Res Support:** Direct indexing of `.mcool` files via lightning-fast C++ backend interfaces (`hictkR`).
-* **Surgical Locus Analysis (`BHiCect_Locus`):** Skip whole-chromosome processing to focus exclusively on specific gene neighborhoods, TADs or transcriptional hubs.
+* **Locus Analysis (`BHiCect_Locus`):** Skip whole-chromosome processing to focus exclusively on specific intervals of interest like gene neighborhoods, TADs or transcriptional hubs.
 * **Non-Contiguous Interaction Networks:** Capture dynamic spatial architecture where disconnected linear regions (e.g., distant super-enhancers looping to promoters) are mathematically grouped into a single structural cluster.
 * **Multi-Resolution Heatmap visualisations:** Generate various heatmap figures, perfect for tracing how a single parent domain fractures into child loops or comparing wild-type loops against degraded/altered states.
 * **Interoperable Data Layouts:** Seamless conversion of hierarchical clusters into Bioconductor-native `GRangesList` objects for downstream multi-omic integration.
@@ -46,7 +46,7 @@ res_obj <- BHiCect(current_MresFile, chrom = "chr20", threshold = 0.5)
 saveRDS(res_obj, file = "chr20_res_obj.rds")
 
 ```
-### 2. Targeted Locus Analysis & Multi-Resolution Visualisation (New ✨)
+### 2. Targeted Locus Analysis & Multi-Resolution Visualisation
 Isolate a specific genomic interval of interest (e.g., a pre-called TAD or a gene neighborhood) and execute top-down recursive spectral decomposition. 
 
 ```R 
@@ -57,7 +57,7 @@ myc_locus_tree <- BHiCect_Locus(
   tad_start = 127235000, 
   tad_end   = 128243000, 
   start_res = 25000,     # Initialize root clustering at 25kb to anchor the domain
-  threshold = 0.45       # Spectral split sensitivity threshold
+  threshold = 0.5       # Spectral split sensitivity threshold
 )
 ```
 ### 3. Heatmap visualisation of clustering
@@ -91,7 +91,7 @@ plot_cluster_heatmap(global_geometry,xlim=c(3.5e7,4e7))
 #### Region of interest
 ![BHiCect2 Cluster Heatmap](man/figures/heatmap_example.png)
 
-This visualisation is particularly useful to evaluate changes in chromatin architecture following specific treatment as illustrated below with the effect of auxin mediated depletion of cohesin at the MYC locus.
+This visualisation is particularly useful to evaluate changes in chromatin architecture following specific treatment. To illustrate the merit of such comparative visualisation, we plot below the effect of auxin mediated depletion of cohesin at the MYC locus.
 
 
 ![BHiCect2 Cluster Heatmap](man/figures/ctrl_vs_auxin.png)
@@ -103,9 +103,9 @@ We also have dedicated functions to integrate our clustering results with the or
 
 Since this function outputs a ggplot object it can be integrated with other omics plots using plotgardener or patchwork.
 
-### 3. Diagnostic Visualization & Density Profiling
+### 3. Diagnostic Visualization
 
-Evaluate the geometric properties of detected clusters and analyze localized bootstrap densities for micro-domains.
+Evaluate the significance of detected clusters with an empirical p-values derived from a bootstrapped null distribution for cluster separability.
 
 ```R
 # Bootstrap validation plots for specific cluster targets
